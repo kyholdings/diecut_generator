@@ -18,9 +18,12 @@ from flask import Flask, jsonify, request, send_from_directory
 
 from diecut_engine import (
     build_airplane_box,
+    estimate_sheet_utilization,
     geometry_to_dxf_bytes,
+    geometry_to_json,
     geometry_to_pdf_bytes,
     geometry_to_svg,
+    validate_geometry,
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -49,6 +52,11 @@ def index():
 @app.route("/api/diecut/health")
 def health():
     return jsonify({"ok": True})
+
+
+@app.route("/api/diecut/schema")
+def schema():
+    return send_from_directory(BASE_DIR, "diecut_schema.json", mimetype="application/schema+json")
 
 
 @app.route("/api/diecut/generate", methods=["POST"])
@@ -81,6 +89,7 @@ def generate():
         layers = [str(x).upper() for x in layers_raw if str(x).upper() in ("CUT", "CREASE", "HALFCUT", "DIMENSION")]
     else:
         layers = None
+    sheet = data.get("sheet") if isinstance(data.get("sheet"), dict) else None
 
     # 简单校验
     if length > 3000 or width > 3000 or height > 3000:
@@ -105,6 +114,10 @@ def generate():
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
+
+    geometry_errors = validate_geometry(geo)
+    if geometry_errors:
+        return jsonify({"error": "几何校验失败", "details": geometry_errors}), 422
 
     effective_internal = geo.board_compensation
 
@@ -136,6 +149,18 @@ def generate():
     min_x, min_y, max_x, max_y = geo.bounds
     cut_count = sum(1 for s in geo.segments if s.kind == "cut")
     crease_count = sum(1 for s in geo.segments if s.kind == "crease")
+    nesting = None
+    if sheet:
+        try:
+            nesting = estimate_sheet_utilization(
+                geo,
+                _float(sheet.get("width"), 0),
+                _float(sheet.get("height"), 0),
+                max(0.0, float(sheet.get("margin", 10))),
+                max(0.0, float(sheet.get("gap", 5))),
+            )
+        except (TypeError, ValueError):
+            return jsonify({"error": "sheet 的纸张尺寸、边距或间距无效"}), 400
 
     return jsonify(
         {
@@ -145,6 +170,7 @@ def generate():
             "pdf_url": f"/api/diecut/download/{fid}.pdf",
             "dxf_url": f"/api/diecut/download/{fid}.dxf",
             "svg_url": f"/api/diecut/download/{fid}.svg",
+            "geometry": geometry_to_json(geo),
             "meta": {
                 "input_length": length,
                 "input_width": width,
@@ -169,6 +195,7 @@ def generate():
                     "side_outer_mm": geo.side_outer,
                 },
                 "segments": {"cut": cut_count, "crease": crease_count},
+                "nesting": nesting,
                 "parameters": {
                     "corner_radius_mm": geo.corner_radius,
                     "hook_ratio": geo.hook_ratio,

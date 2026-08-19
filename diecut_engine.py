@@ -438,6 +438,122 @@ def build_airplane_box(
     )
 
 
+def validate_geometry(geo: DieCutGeometry) -> List[str]:
+    """检查几何对象是否适合导出和拼版。"""
+    errors: List[str] = []
+    for index, segment in enumerate(geo.segments):
+        if len(segment.points) < 2:
+            errors.append(f"segment[{index}] 少于两个点")
+        for point in segment.points:
+            if not all(math.isfinite(value) for value in point):
+                errors.append(f"segment[{index}] 包含非有限坐标")
+        if any(first == second for first, second in zip(segment.points, segment.points[1:])):
+            errors.append(f"segment[{index}] 包含连续重复点")
+    min_x, min_y, max_x, max_y = geo.bounds
+    if not (min_x < max_x and min_y < max_y):
+        errors.append("刀版边界无效")
+    return errors
+
+
+def geometry_to_json(geo: DieCutGeometry) -> dict:
+    """将几何转换为稳定的 API geometry contract。"""
+    y0 = 0.0
+    y1 = geo.wall_height
+    y2 = y1 + geo.bottom_height
+    y3 = y2 + geo.wall_height
+    y4 = y3 + geo.lid_height
+    y5 = y4 + geo.tab_depth
+    return {
+        "schema_version": "1.0",
+        "type": "airplane_box",
+        "units": "mm",
+        "dimensions": {
+            "length": geo.length,
+            "width": geo.width,
+            "height": geo.height,
+            "thickness": geo.thickness,
+        },
+        "bounds": dict(zip(("min_x", "min_y", "max_x", "max_y"), geo.bounds)),
+        "layers": list(geo.layers),
+        "panels": [
+            {"id": "front_wall", "bounds": [0.0, y0, geo.length, y1]},
+            {"id": "bottom", "bounds": [0.0, y1, geo.length, y2]},
+            {"id": "back_wall", "bounds": [0.0, y2, geo.length, y3]},
+            {"id": "lid", "bounds": [0.0, y3, geo.length, y4]},
+            {"id": "tuck", "bounds": [0.0, y4, geo.length, y5]},
+        ],
+        "fold_sequence": [
+            {"order": 1, "from": "front_wall", "to": "bottom", "axis_y": y1},
+            {"order": 2, "from": "back_wall", "to": "bottom", "axis_y": y2},
+            {"order": 3, "from": "lid", "to": "back_wall", "axis_y": y3},
+            {"order": 4, "from": "tuck", "to": "lid", "axis_y": y4},
+        ],
+        "fold_lines": [
+            {"points": [list(point) for point in segment.points], "cut": segment.cut}
+            for segment in geo.segments
+            if segment.kind == "crease"
+        ],
+        "segments": [
+            {
+                "kind": segment.kind,
+                "cut": segment.cut,
+                "points": [list(point) for point in segment.points],
+            }
+            for segment in geo.segments
+        ],
+    }
+
+
+def estimate_sheet_utilization(
+    geo: DieCutGeometry,
+    sheet_width: float,
+    sheet_height: float,
+    margin: float = 10.0,
+    gap: float = 5.0,
+) -> dict:
+    """用刀版包围盒估算直放/横放的拼版数量和利用率。"""
+    if min(sheet_width, sheet_height) <= 0 or min(margin, gap) < 0:
+        raise ValueError("纸张尺寸、边距和间距必须有效")
+    min_x, min_y, max_x, max_y = geo.bounds
+    blank_width = max_x - min_x
+    blank_height = max_y - min_y
+    sheet_area = sheet_width * sheet_height
+    candidates = []
+    for rotation, item_width, item_height in (
+        (0, blank_width, blank_height),
+        (90, blank_height, blank_width),
+    ):
+        usable_width = sheet_width - 2 * margin
+        usable_height = sheet_height - 2 * margin
+        columns = int((usable_width + gap) // (item_width + gap)) if item_width else 0
+        rows = int((usable_height + gap) // (item_height + gap)) if item_height else 0
+        count = max(0, columns) * max(0, rows)
+        used_area = count * blank_width * blank_height
+        candidates.append({
+            "rotation": rotation,
+            "columns": max(0, columns),
+            "rows": max(0, rows),
+            "count": count,
+            "utilization": used_area / sheet_area if sheet_area else 0.0,
+        })
+    best = max(candidates, key=lambda item: (item["count"], item["utilization"]))
+    return {
+        "sheet_width_mm": sheet_width,
+        "sheet_height_mm": sheet_height,
+        "margin_mm": margin,
+        "gap_mm": gap,
+        "blank_width_mm": blank_width,
+        "blank_height_mm": blank_height,
+        "rotation": best["rotation"],
+        "columns": best["columns"],
+        "rows": best["rows"],
+        "count": best["count"],
+        "utilization": best["utilization"],
+        "candidates": candidates,
+        "nesting_hint": "优先采用包围盒利用率最高的旋转方向",
+    }
+
+
 # ---------------------------------------------------------------------------
 # SVG 输出
 # ---------------------------------------------------------------------------
@@ -622,7 +738,7 @@ def geometry_to_dxf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
             title,
             dxfattribs={
                 "height": 3.0,
-                "layer": "CUT",
+                "layer": "CUT" if "CUT" in active else (geo.layers[0] if geo.layers else "CUT"),
                 "insert": (geo.bounds[0], geo.bounds[1] - 8.0),
             },
         )

@@ -39,6 +39,8 @@ python app.py
 4. 点击"生成刀版"，实时预览 SVG
 5. 下载 PDF / DXF
 
+参数变化会自动防抖刷新预览；服务暂时不可用时，浏览器会使用本地几何引擎按当前参数生成 SVG。最近一次服务器结果也会保存在浏览器本地作为回退缓存。离线模式仅支持 SVG 预览，PDF / DXF 需要恢复服务器连接。
+
 ## API
 
 ### `POST /api/diecut/generate`
@@ -75,6 +77,22 @@ python app.py
 ### `GET /api/diecut/download/<filename>`
 
 下载生成的文件（pdf / dxf / svg）。
+
+### `GET /api/diecut/schema`
+
+返回请求 JSON Schema，供客户端或外部工具校验参数。
+
+### 拼版估算
+
+在生成请求中传入 `sheet` 后，返回 `meta.nesting`：
+
+```json
+{
+      "sheet": { "width": 1200, "height": 800, "margin": 10, "gap": 5 }
+}
+```
+
+估算支持直放和横放两种方向，当前使用刀版包围盒进行基础排样，不替代轮廓级嵌套优化。
 
 ## 刀版结构
 
