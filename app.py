@@ -66,6 +66,22 @@ def generate():
     fold_ratio = _float(data.get("fold_ratio", 0.3), 0.3)
     lock_ratio = _float(data.get("lock_ratio", 1.0), 1.0)
 
+    # 新增参数（Step 3）：圆角半径 / 凸起钩比例 / 纸厚补偿 / 图层
+    corner_radius = _float(data.get("corner_radius", 0.0), 0.0)
+    hook_ratio = _float(data.get("hook_ratio", 0.33), 0.33)
+    if hook_ratio < 0.2:
+        hook_ratio = 0.2
+    elif hook_ratio > 0.5:
+        hook_ratio = 0.5
+    board_compensation = data.get("board_compensation", None)
+    if board_compensation is not None:
+        board_compensation = bool(board_compensation)
+    layers_raw = data.get("layers")
+    if isinstance(layers_raw, list):
+        layers = [str(x).upper() for x in layers_raw if str(x).upper() in ("CUT", "CREASE", "HALFCUT", "DIMENSION")]
+    else:
+        layers = None
+
     # 简单校验
     if length > 3000 or width > 3000 or height > 3000:
         return jsonify({"error": "尺寸超出合理范围（≤3000mm）"}), 400
@@ -82,12 +98,18 @@ def generate():
             tab_depth=tab_depth,
             fold_ratio=fold_ratio,
             lock_ratio=lock_ratio,
+            corner_radius=corner_radius,
+            hook_ratio=hook_ratio,
+            board_compensation=board_compensation,
+            layers=layers,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
+    effective_internal = geo.board_compensation
+
     # 生成标题 / 元数据
-    if internal:
+    if effective_internal:
         title = f"自锁飞机盒刀版 内 {length:.0f}x{width:.0f}x{height:.0f}mm 纸厚{thickness:.1f}mm"
         outer_l = length + 2 * thickness
         outer_w = width + 2 * thickness
@@ -128,7 +150,7 @@ def generate():
                 "input_width": width,
                 "input_height": height,
                 "thickness": thickness,
-                "internal": internal,
+                "internal": effective_internal,
                 "inner": {"length": geo.length, "width": geo.width, "height": geo.height},
                 "outer": {"length": outer_l, "width": outer_w, "height": outer_h},
                 "blank": {
@@ -147,6 +169,13 @@ def generate():
                     "side_outer_mm": geo.side_outer,
                 },
                 "segments": {"cut": cut_count, "crease": crease_count},
+                "parameters": {
+                    "corner_radius_mm": geo.corner_radius,
+                    "hook_ratio": geo.hook_ratio,
+                    "hook_height_mm": geo.width * geo.hook_ratio,
+                    "board_compensation": geo.board_compensation,
+                    "layers": geo.layers,
+                },
             },
         }
     )

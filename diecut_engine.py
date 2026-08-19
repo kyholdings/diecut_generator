@@ -28,9 +28,14 @@ from typing import List, Tuple
 
 @dataclass
 class Segment:
-    """一段刀线。kind: 'cut' 或 'crease'，points 为折线顶点。"""
+    """一段刀线。kind: 'cut' 或 'crease'，points 为折线顶点。
+
+    cut 标记仅用于折痕线：当某段折痕与分刀线共线时，cut=True 表示该处
+    同时也是模切线（在 SVG 中按 <g> 分层渲染，避免视觉重叠）。
+    """
     kind: str
     points: List[Tuple[float, float]]
+    cut: bool = False
 
 
 @dataclass
@@ -51,6 +56,11 @@ class DieCutGeometry:
     side_outer: float      # 大侧壁外段 = H - t（折叠后插入盒底）
     fold_seg: float        # 两折翼的插入段长度
     segments: List[Segment] = field(default_factory=list)
+    # —— 新增参数化字段（Step 2）——
+    corner_radius: float = 0.0        # 统一圆角半径（插舌顶 / 盖翼顶 / 侧壁拐角）
+    hook_ratio: float = 0.33          # 凸起钩高度比例（hook_h = W * hook_ratio）
+    board_compensation: bool = True   # 是否启用纸厚补偿（内外尺寸换算）
+    layers: List[str] = field(default_factory=lambda: ["CUT", "CREASE"])  # 活跃图层
 
     @property
     def bounds(self) -> Tuple[float, float, float, float]:
@@ -77,6 +87,10 @@ def build_airplane_box(
     tab_depth: float | None = None,
     fold_ratio: float = 0.3,
     lock_ratio: float = 1.0,
+    corner_radius: float = 0.0,
+    hook_ratio: float = 0.33,
+    board_compensation: bool | None = None,
+    layers: List[str] | None = None,
 ) -> DieCutGeometry:
     """
     构建自锁式飞机盒刀版几何（按折叠逻辑严格推算尺寸）。
@@ -90,13 +104,17 @@ def build_airplane_box(
       - 底面大侧壁宽度 = H + t（一折）
       - 盖翼（机翼）/ 后壁矩形翼宽度 = H - t（两折）
 
-    参数：
+     参数：
       length / width / height : 长 / 宽 / 高（mm）
       thickness               : 纸板厚度（mm）
       internal                : True 内尺寸，False 外尺寸
       tab_depth               : 插舌深度（mm），默认 20
       fold_ratio              : 两折翼插入段占总宽比例，默认 0.3
       lock_ratio              : 锁扣翼宽度比例，默认 1.0
+      corner_radius           : 统一圆角半径（mm），默认 0（关闭，保持直角）
+      hook_ratio              : 凸起钩高度比例，默认 0.33（= W/3.0 行为）
+      board_compensation      : 纸厚补偿开关，默认 None（沿用 internal）
+      layers                  : 活跃图层列表，默认 ["CUT", "CREASE"]
     """
     L = float(length)
     W = float(width)
@@ -105,6 +123,10 @@ def build_airplane_box(
 
     if min(L, W, H, t) <= 0:
         raise ValueError("长、宽、高、纸厚必须为正数")
+
+    # 纸厚补偿开关：若显式给出则覆盖 internal
+    if board_compensation is not None:
+        internal = bool(board_compensation)
 
     if not internal:
         L = max(L - 2 * t, 1.0)
@@ -129,8 +151,17 @@ def build_airplane_box(
     tab_ear_w = wing_w                          # 插舌翼横向 = 盖翼 = 锁扣翼 = H - t（等腰梯形）
     tab_ear_slant = min(12.0, tab * 0.2)        # 插舌翼等腰梯形斜切
     back_slant = min(15.0, back_w * 0.3)        # （后壁翼已改矩形，此值保留备用）
+    hook_ratio = _clamp(float(hook_ratio), 0.2, 0.5)
     hook_d = max(8.0, H * 0.15)                 # 大侧壁外段插舌末端凸起钩深度
-    hook_h = W / 3.0                            # 插舌末端凸起钩高度（居中 1 个）
+    hook_h = W * hook_ratio                    # 插舌末端凸起钩高度（居中 1 个，可调比例）
+
+    # 圆角半径安全钳制：不能大于插舌翼宽，也不能让插舌顶边变成负宽
+    len_ear = math.hypot(tab_ear_w, tab_ear_slant)
+    corner_radius = _clamp(
+        float(corner_radius),
+        0.0,
+        max(0.0, min(tab_ear_w, len_ear * 0.9, L / 2.0 - 0.5)),
+    )
 
     # 纵向分层（从下到上）
     y0 = 0.0
@@ -144,8 +175,13 @@ def build_airplane_box(
 
     segments: List[Segment] = []
 
-    def poly(kind: str, pts: List[Tuple[float, float]]) -> None:
-        segments.append(Segment(kind, pts))
+    def poly(kind: str, pts: List[Tuple[float, float]], cut: bool = False) -> None:
+        clean: List[Tuple[float, float]] = []
+        for point in pts:
+            if not clean or point != clean[-1]:
+                clean.append(point)
+        if len(clean) >= 2:
+            segments.append(Segment(kind, clean, cut=cut))
 
     def arc_pts(cx: float, cy: float, r: float, t0: float, t1: float, n: int = 10) -> List[Tuple[float, float]]:
         """以 (cx,cy) 为圆心、半径 r 的圆弧，t0..t1 弧度。"""
@@ -154,6 +190,75 @@ def build_airplane_box(
             th = t0 + (t1 - t0) * i / n
             out.append((cx + r * math.cos(th), cy + r * math.sin(th)))
         return out
+
+    def rounded_corner(prev: Tuple[float, float], corner: Tuple[float, float],
+                       nxt: Tuple[float, float], r: float) -> List[Tuple[float, float]]:
+        """凸角圆弧化（外轮廓为 CW 走向，材料在右侧）。
+
+        返回替换 corner 的圆弧点列（含两端点 p1/p2）；若 r<=0 或几何退化则原样返回 [corner]。
+        圆弧中心 C 满足到两边距离均为 r（内移法线），两端点为 C 到两边的垂足（切点）。
+        """
+        if r <= 0:
+            return [corner]
+        v1x, v1y = corner[0] - prev[0], corner[1] - prev[1]
+        v2x, v2y = nxt[0] - corner[0], nxt[1] - corner[1]
+        len1 = math.hypot(v1x, v1y)
+        len2 = math.hypot(v2x, v2y)
+        if len1 < 1e-9 or len2 < 1e-9:
+            return [corner]
+        u1 = (v1x / len1, v1y / len1)
+        u2 = (v2x / len2, v2y / len2)
+        # 右侧法向（CW 路径，材料在右）：旋转 90° → (dy, -dx)
+        n1 = (u1[1], -u1[0])
+        n2 = (u2[1], -u2[0])
+        # 求圆心 C：(C-corner)·n1 = r 且 (C-corner)·n2 = r
+        det = n1[0] * n2[1] - n1[1] * n2[0]
+        if abs(det) < 1e-9:
+            return [corner]
+        dx = (r * n2[1] - r * n1[1]) / det
+        dy = (n1[0] * r - n2[0] * r) / det
+        cx = corner[0] + dx
+        cy = corner[1] + dy
+        # 切点：C 到两边的垂足
+        t1 = (cx - corner[0]) * u1[0] + (cy - corner[1]) * u1[1]
+        t2 = (cx - corner[0]) * u2[0] + (cy - corner[1]) * u2[1]
+        if t1 > 0 or t2 < 0:
+            # 切点落在角外侧（凹角），不圆角化
+            return [corner]
+        p1 = (corner[0] + t1 * u1[0], corner[1] + t1 * u1[1])
+        p2 = (corner[0] + t2 * u2[0], corner[1] + t2 * u2[1])
+        if abs(math.hypot(cx - p1[0], cy - p1[1]) - r) > 0.05:
+            return [corner]
+        a1 = math.atan2(p1[1] - cy, p1[0] - cx)
+        a2 = math.atan2(p2[1] - cy, p2[0] - cx)
+        # 凸角：圆弧走 p1→p2 较短一侧（材料内部）。CP>0 走 CCW，CP<0 走 CW。
+        cp = (p1[0] - cx) * (p2[1] - cy) - (p1[1] - cy) * (p2[0] - cx)
+        if cp > 0:
+            if a1 > a2:
+                a2 += 2 * math.pi
+            return arc_pts(cx, cy, r, a1, a2, 12)
+
+        else:
+            if a1 < a2:
+                a1 += 2 * math.pi
+            return arc_pts(cx, cy, r, a1, a2, 12)
+
+    def rounded_polyline(points: List[Tuple[float, float]], radius: float,
+                         rounded_indices: set[int]) -> List[Tuple[float, float]]:
+        """对折线指定拐角圆角化，并去除相邻重复点。"""
+        result: List[Tuple[float, float]] = []
+        last_index = len(points) - 1
+        for index, point in enumerate(points):
+            if 0 < index < last_index and index in rounded_indices:
+                replacement = rounded_corner(
+                    points[index - 1], point, points[index + 1], radius
+                )
+            else:
+                replacement = [point]
+            for replacement_point in replacement:
+                if not result or replacement_point != result[-1]:
+                    result.append(replacement_point)
+        return result
 
     def side_hooks(x_out: float, y_a: float, y_b: float, up: bool) -> List[Tuple[float, float]]:
         """大侧壁外段（插入底部的插舌）末端：一个居中凸起钩（左右对称）。"""
@@ -186,31 +291,39 @@ def build_airplane_box(
         pts.append((0.0, y2))
         # 后壁矩形翼（腰部翼，矩形 = 前壁锁扣翼，宽度 H-t）
         pts += [(-back_w, y2), (-back_w, y3), (0.0, y3)]
-        # 盖面盖翼（等腰梯形：外边垂直、上下两腰对称斜，宽度 H-t）
-        pts += [(-wing_w, y3 + slant_w), (-wing_w, y4 - slant_w), (0.0, y4)]
+        # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形
+        pts += rounded_polyline(
+            [(0.0, y3), (-wing_w, y3 + slant_w),
+             (-wing_w, y4 - slant_w), (0.0, y4)],
+            corner_radius,
+            {1, 2},
+        )
         return pts
 
     def tuck_outline() -> List[Tuple[float, float]]:
-        """插舌轮廓（本体矩形 + 两侧等腰梯形翼，左右绝对对称），从 (0,y4) 到 (Lx,y4)。"""
-        pts: List[Tuple[float, float]] = []
-        pts.append((0.0, y4))
-        # 左翼（等腰梯形：下腰、外边、上腰）
-        pts.append((-tab_ear_w, y4 + tab_ear_slant))
-        pts.append((-tab_ear_w, y5 - tab_ear_slant))
-        pts.append((0.0, y5))
-        # 插舌顶边（水平全宽，本体矩形）
-        pts.append((Lx, y5))
-        # 右翼（等腰梯形：上腰、外边、下腰）
-        pts.append((Lx + tab_ear_w, y5 - tab_ear_slant))
-        pts.append((Lx + tab_ear_w, y4 + tab_ear_slant))
-        pts.append((Lx, y4))
-        return pts
+        """插舌本体与左右耳翼的统一对称外轮廓。"""
+        outline = [
+            (0.0, y4),
+            (-tab_ear_w, y4 + tab_ear_slant),
+            (-tab_ear_w, y5 - tab_ear_slant),
+            (0.0, y5),
+            (Lx, y5),
+            (Lx + tab_ear_w, y5 - tab_ear_slant),
+            (Lx + tab_ear_w, y4 + tab_ear_slant),
+            (Lx, y4),
+        ]
+        return rounded_polyline(outline, corner_radius, set(range(1, 7)))
 
     def right_side_points() -> List[Tuple[float, float]]:
         """右侧轮廓，从 (Lx,y4) 到 (Lx,y0)。"""
         pts: List[Tuple[float, float]] = []
-        # 盖面盖翼（右，等腰梯形）
-        pts += [(Lx + wing_w, y4 - slant_w), (Lx + wing_w, y3 + slant_w), (Lx, y3)]
+        # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形
+        pts += rounded_polyline(
+            [(Lx, y4), (Lx + wing_w, y4 - slant_w),
+             (Lx + wing_w, y3 + slant_w), (Lx, y3)],
+            corner_radius,
+            {1, 2},
+        )
         # 后壁矩形翼（右，矩形 = 前壁锁扣翼）
         pts += [(Lx + back_w, y3), (Lx + back_w, y2), (Lx, y2)]
         # 底面右侧壁（内段 H+t + 外段插舌 H-t，末端三个凸起钩，自上而下）
@@ -227,8 +340,9 @@ def build_airplane_box(
 
     # ---- 压痕线（折叠线）----
     # 主列横向折痕：前壁|底面|后壁|盖面|插舌
+    # y1/y2/y3 处与分刀线共线（侧翼切口延伸），标记 cut=True 供分层渲染
     for yy in (y1, y2, y3, y4):
-        poly("crease", [(0.0, yy), (Lx, yy)])
+        poly("crease", [(0.0, yy), (Lx, yy)], cut=(yy in (y1, y2, y3)))
     # 左/右侧翼与主列连接折痕（一折）
     poly("crease", [(0.0, y0), (0.0, y1)])      # 前壁|锁扣翼
     poly("crease", [(0.0, y1), (0.0, y2)])      # 底面|侧壁
@@ -260,6 +374,47 @@ def build_airplane_box(
     poly("cut", [(-back_w, y3), (0.0, y3)])
     poly("cut", [(Lx, y3), (Lx + back_w, y3)])
 
+    # ---- 底面侧壁凸钩对应的插口 ----
+    # 插口沿盒宽方向开刀，位置与左右侧壁凸钩中心对齐，并关于底面中心镜像。
+    # 插口为封闭矩形，短边使用纸板厚度，避免单刀线无法形成实际开口。
+    slot_center = (y1 + y2) / 2.0
+    slot_low = slot_center - hook_h / 2.0
+    slot_high = slot_center + hook_h / 2.0
+    slot_center_x = min(hook_d, Lx / 2.0)
+    slot_half_width = min(t / 2.0, slot_center_x, (Lx / 2.0) - slot_center_x)
+    left_slot_x0 = slot_center_x - slot_half_width
+    left_slot_x1 = slot_center_x + slot_half_width
+    right_slot_x0 = Lx - left_slot_x1
+    right_slot_x1 = Lx - left_slot_x0
+    poly("cut", [
+        (left_slot_x0, slot_low), (left_slot_x1, slot_low),
+        (left_slot_x1, slot_high), (left_slot_x0, slot_high),
+        (left_slot_x0, slot_low),
+    ])
+    poly("cut", [
+        (right_slot_x0, slot_low), (right_slot_x1, slot_low),
+        (right_slot_x1, slot_high), (right_slot_x0, slot_high),
+        (right_slot_x0, slot_low),
+    ])
+
+    # ---- 可选图层：防尘耳半切线（HALFCUT）----
+    if layers and "HALFCUT" in layers:
+        # 左右插舌耳翼中线半切线，便于撕除防尘耳
+        poly("halfcut", [(-tab_ear_w * 0.5, y4 + tab_ear_slant * 0.5),
+                         (-tab_ear_w * 0.5, y5 - tab_ear_slant * 0.5)])
+        poly("halfcut", [(Lx + tab_ear_w * 0.5, y4 + tab_ear_slant * 0.5),
+                         (Lx + tab_ear_w * 0.5, y5 - tab_ear_slant * 0.5)])
+
+    # ---- 可选图层：关键尺寸标注线（DIMENSION）----
+    if layers and "DIMENSION" in layers:
+        dim_margin = 8.0
+        xd = -(tab_ear_w + dim_margin)   # 左侧总长标注位置
+        yd = y0 - dim_margin             # 底部长度标注位置
+        # 长度 L（底部水平），宽度方向即列宽
+        poly("dimension", [(0.0, yd), (Lx, yd)])
+        # 展开总高（左侧竖直）：前壁+底面+后壁+盖面+插舌
+        poly("dimension", [(xd, y0), (xd, y5)])
+
     return DieCutGeometry(
         length=L,
         width=W,
@@ -276,6 +431,10 @@ def build_airplane_box(
         side_outer=side_outer,
         fold_seg=fold_seg,
         segments=segments,
+        corner_radius=corner_radius,
+        hook_ratio=hook_ratio,
+        board_compensation=internal,
+        layers=list(layers) if layers else ["CUT", "CREASE"],
     )
 
 
@@ -287,6 +446,14 @@ def _format_pt(v: float) -> str:
     return f"{v:.3f}".rstrip("0").rstrip(".")
 
 
+LAYER_OF_KIND = {
+    "cut": "CUT",
+    "crease": "CREASE",
+    "halfcut": "HALFCUT",
+    "dimension": "DIMENSION",
+}
+
+
 def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
     min_x, min_y, max_x, max_y = geo.bounds
     pad = 10.0
@@ -295,13 +462,22 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
     vb_w = (max_x - min_x) + 2 * pad
     vb_h = (max_y - min_y) + 2 * pad
 
+    # 线条宽度随纸板厚度动态调整（Step 1 项 5）
+    t = geo.thickness
+    cut_w = 0.25 + t * 0.02
+    crease_w = 0.20 + t * 0.02
+    halfcut_w = 0.15 + t * 0.02
+    dim_w = 0.1
+
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{_format_pt(vb_w)}mm" '
         f'height="{_format_pt(vb_h)}mm" viewBox="{_format_pt(vb_x)} {_format_pt(vb_y)} {_format_pt(vb_w)} {_format_pt(vb_h)}">',
         '<defs>',
         '  <style>',
-        '    .cut { stroke: #000; stroke-width: 0.25; fill: none; }',
-        '    .crease { stroke: #e02020; stroke-width: 0.2; stroke-dasharray: 4 2; fill: none; }',
+        f'    .cut {{ stroke: #000; stroke-width: {_format_pt(cut_w)}; fill: none; }}',
+        f'    .crease {{ stroke: #e02020; stroke-width: {_format_pt(crease_w)}; stroke-dasharray: 4 2; fill: none; }}',
+        f'    .halfcut {{ stroke: #1d4ed8; stroke-width: {_format_pt(halfcut_w)}; stroke-dasharray: 1 1.5; fill: none; }}',
+        f'    .dimension {{ stroke: #64748b; stroke-width: {_format_pt(dim_w)}; fill: none; }}',
         '  </style>',
         '</defs>',
     ]
@@ -313,13 +489,21 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
     # 翻转 Y 轴：让插舌(顶)显示在上方，与参考图方向一致
     flip_t = 2 * vb_y + vb_h
     parts.append(f'<g transform="translate(0,{_format_pt(flip_t)}) scale(1,-1)">')
-    for seg in geo.segments:
-        cls = "cut" if seg.kind == "cut" else "crease"
-        d_parts = []
-        for i, (x, y) in enumerate(seg.points):
-            cmd = "M" if i == 0 else "L"
-            d_parts.append(f"{cmd}{_format_pt(x)} {_format_pt(y)}")
-        parts.append(f'  <path class="{cls}" d="{" ".join(d_parts)}"/>')
+    active = set(geo.layers)
+    # 按图层分组渲染（Step 5）：CUT / CREASE / 可选 HALFCUT / DIMENSION
+    for layer in ("CUT", "CREASE", "HALFCUT", "DIMENSION"):
+        if layer not in active:
+            continue
+        parts.append(f'  <g id="layer-{layer}">')
+        for seg in geo.segments:
+            if LAYER_OF_KIND.get(seg.kind) != layer:
+                continue
+            d_parts = []
+            for i, (x, y) in enumerate(seg.points):
+                cmd = "M" if i == 0 else "L"
+                d_parts.append(f"{cmd}{_format_pt(x)} {_format_pt(y)}")
+            parts.append(f'    <path class="{seg.kind}" d="{" ".join(d_parts)}"/>')
+        parts.append("  </g>")
     parts.append("</g>")
     parts.append("</svg>")
     return "\n".join(parts)
@@ -348,11 +532,19 @@ def geometry_to_pdf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
         c.saveState()
         if seg.kind == "cut":
             c.setStrokeColorRGB(0, 0, 0)
-            c.setLineWidth(0.5)
+            c.setLineWidth(0.5 + geo.thickness * 0.02)
+            c.setDash()
+        elif seg.kind == "halfcut":
+            c.setStrokeColorRGB(0.1, 0.3, 0.8)
+            c.setLineWidth(0.2 + 0.0)
+            c.setDash(1, 1.5)
+        elif seg.kind == "dimension":
+            c.setStrokeColorRGB(0.4, 0.4, 0.4)
+            c.setLineWidth(0.1)
             c.setDash()
         else:
             c.setStrokeColorRGB(0.9, 0.1, 0.1)
-            c.setLineWidth(0.35)
+            c.setLineWidth(0.35 + geo.thickness * 0.02)
             c.setDash(3, 2)
         p = c.beginPath()
         x0, y0 = seg.points[0]
@@ -362,7 +554,10 @@ def geometry_to_pdf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
         c.drawPath(p, stroke=1, fill=0)
         c.restoreState()
 
+    active = set(geo.layers)
     for seg in geo.segments:
+        if LAYER_OF_KIND.get(seg.kind) not in active:
+            continue
         draw_segment(seg)
 
     c.setFillColorRGB(0.3, 0.3, 0.3)
@@ -388,6 +583,10 @@ def geometry_to_dxf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
         doc.layers.add("CUT", color=1)
     if "CREASE" not in doc.layers:
         doc.layers.add("CREASE", color=5)
+    if "HALFCUT" not in doc.layers:
+        doc.layers.add("HALFCUT", color=4)
+    if "DIMENSION" not in doc.layers:
+        doc.layers.add("DIMENSION", color=2)
 
     try:
         if "DASHED" not in doc.linetypes:
@@ -395,8 +594,17 @@ def geometry_to_dxf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
     except Exception:
         pass
 
+    dxf_layer = {
+        "cut": "CUT",
+        "crease": "CREASE",
+        "halfcut": "HALFCUT",
+        "dimension": "DIMENSION",
+    }
+    active = set(geo.layers)
     for seg in geo.segments:
-        layer = "CUT" if seg.kind == "cut" else "CREASE"
+        if dxf_layer.get(seg.kind) not in active:
+            continue
+        layer = dxf_layer.get(seg.kind, "CREASE")
         attribs = {"layer": layer}
         if seg.kind == "crease":
             try:
