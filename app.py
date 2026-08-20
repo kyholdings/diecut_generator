@@ -90,6 +90,8 @@ def generate():
     else:
         layers = None
     sheet = data.get("sheet") if isinstance(data.get("sheet"), dict) else None
+    fb_comp = data.get("fb_comp")
+    side_comp = data.get("side_comp")
 
     # 简单校验
     if length > 3000 or width > 3000 or height > 3000:
@@ -111,6 +113,8 @@ def generate():
             hook_ratio=hook_ratio,
             board_compensation=board_compensation,
             layers=layers,
+            fb_comp=fb_comp,
+            side_comp=side_comp,
         )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400

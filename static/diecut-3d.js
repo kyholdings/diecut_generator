@@ -60,6 +60,8 @@
     var L = g.dimensions.length;
     var der = g.derived || {};
     var Hw = der.wall_height, Wb = der.bottom_height, lidH = der.lid_height, tab = der.tab_depth;
+    var colW = der.column_width || L;
+    var sideH = der.side_height || Wb;
     var wing = der.wing_width, sideInner = der.side_inner, sideOuter = der.side_outer;
     var blank = m.blank || {};
     var back = blank.back_flap_width_mm || wing;
@@ -80,25 +82,25 @@
     // 面板定义：id / parent / anchor(网坐标折线锚点) / netRect(网区域) / axis / to / fill / shape(可选梯形)
     var DEFS = [
       { id: 'bottom', parent: 'root', anchor: [0, y1], net: [0, y1, L, y2], fill: FILL.base },
-      { id: 'front_wall', parent: 'bottom', anchor: [0, y1], net: [0, y0, L, y1], axis: 'x', to: -HALF, range: STAGES.frontBack, fill: FILL.wall },
-      { id: 'back_wall', parent: 'bottom', anchor: [0, y2], net: [0, y2, L, y3], axis: 'x', to: HALF, range: STAGES.frontBack, fill: FILL.wall },
-      { id: 'left_wall', parent: 'bottom', anchor: [0, y1], net: [-sideInner, y1, 0, y2], axis: 'y', to: HALF, range: STAGES.sides, fill: FILL.side },
-      { id: 'right_wall', parent: 'bottom', anchor: [L, y1], net: [L, y1, L + sideInner, y2], axis: 'y', to: -HALF, range: STAGES.sides, fill: FILL.side },
+      { id: 'front_wall', parent: 'bottom', anchor: [0, y1], net: [0, y0, colW, y1], axis: 'x', to: -HALF, range: STAGES.frontBack, fill: FILL.wall },
+      { id: 'back_wall', parent: 'bottom', anchor: [0, y2], net: [0, y2, colW, y3], axis: 'x', to: HALF, range: STAGES.frontBack, fill: FILL.wall },
+      { id: 'left_wall', parent: 'bottom', anchor: [0, y1], net: [-sideInner, y1, 0, y1 + sideH], axis: 'y', to: HALF, range: STAGES.sides, fill: FILL.side },
+      { id: 'right_wall', parent: 'bottom', anchor: [L, y1], net: [L, y1, L + sideInner, y1 + sideH], axis: 'y', to: -HALF, range: STAGES.sides, fill: FILL.side },
       { id: 'left_outer', parent: 'left_wall', anchor: [-sideInner, y1], net: [-sideTotal - hookD, y1, -sideInner, y2], axis: 'y', to: Math.PI, range: STAGES.outer, fill: FILL.outer },
       { id: 'right_outer', parent: 'right_wall', anchor: [L + sideInner, y1], net: [L + sideInner, y1, L + sideTotal + hookD, y2], axis: 'y', to: -Math.PI, range: STAGES.outer, fill: FILL.outer },
-      { id: 'lid', parent: 'back_wall', anchor: [0, y3], net: [0, y3, L, y4], axis: 'x', to: HALF, range: STAGES.lid, fill: FILL.lid },
-      { id: 'tuck', parent: 'lid', anchor: [0, y4], net: [0, y4, L, y5], axis: 'x', to: HALF, range: STAGES.tuck, fill: FILL.tuck },
+      { id: 'lid', parent: 'back_wall', anchor: [0, y3], net: [0, y3, colW, y4], axis: 'x', to: HALF, range: STAGES.lid, fill: FILL.lid },
+      { id: 'tuck', parent: 'lid', anchor: [0, y4], net: [0, y4, colW, y5], axis: 'x', to: HALF, range: STAGES.tuck, fill: FILL.tuck },
       { id: 'lock_left', parent: 'front_wall', anchor: [0, y1], net: [-lock, y0, 0, y1], axis: 'y', to: HALF, range: STAGES.waistWings, fill: FILL.wing },
-      { id: 'lock_right', parent: 'front_wall', anchor: [L, y1], net: [L, y0, L + lock, y1], axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
+      { id: 'lock_right', parent: 'front_wall', anchor: [L, y1], net: [colW, y0, colW + lock, y1], axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
       { id: 'back_wing_left', parent: 'back_wall', anchor: [0, y2], net: [-back, y2, 0, y3], axis: 'y', to: HALF, range: STAGES.waistWings, fill: FILL.wing },
-      { id: 'back_wing_right', parent: 'back_wall', anchor: [L, y2], net: [L, y2, L + back, y3], axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
+      { id: 'back_wing_right', parent: 'back_wall', anchor: [L, y2], net: [colW, y2, colW + back, y3], axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
       { id: 'lid_wing_left', parent: 'lid', anchor: [0, y3], net: [-wing, y3, 0, y4], axis: 'y', to: HALF, range: STAGES.lidWings, fill: FILL.wing,
         shape: [[0, 0], [0, lidH], [-wing, lidH - lidSlant], [-wing, lidSlant]] },
-      { id: 'lid_wing_right', parent: 'lid', anchor: [L, y3], net: [L, y3, L + wing, y4], axis: 'y', to: -HALF, range: STAGES.lidWings, fill: FILL.wing,
+      { id: 'lid_wing_right', parent: 'lid', anchor: [L, y3], net: [colW, y3, colW + wing, y4], axis: 'y', to: -HALF, range: STAGES.lidWings, fill: FILL.wing,
         shape: [[0, 0], [0, lidH], [wing, lidH - lidSlant], [wing, lidSlant]] },
       { id: 'tuck_ear_left', parent: 'tuck', anchor: [0, y4], net: [-wing, y4, 0, y5], axis: 'y', to: HALF, range: STAGES.tuckEars, fill: FILL.wing,
         shape: [[0, 0], [0, tab], [-wing, tab - tabEarSlant], [-wing, tabEarSlant]] },
-      { id: 'tuck_ear_right', parent: 'tuck', anchor: [L, y4], net: [L, y4, L + wing, y5], axis: 'y', to: -HALF, range: STAGES.tuckEars, fill: FILL.wing,
+      { id: 'tuck_ear_right', parent: 'tuck', anchor: [L, y4], net: [colW, y4, colW + wing, y5], axis: 'y', to: -HALF, range: STAGES.tuckEars, fill: FILL.wing,
         shape: [[0, 0], [0, tab], [wing, tab - tabEarSlant], [wing, tabEarSlant]] },
     ];
 

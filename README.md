@@ -60,9 +60,17 @@ python app.py
   "internal": true,
   "tab_depth": 60,
   "fold_ratio": 0.3,
-  "lock_ratio": 1.0
+  "lock_ratio": 1.0,
+  "fb_comp": null,
+  "side_comp": null
 }
 ```
+
+`fb_comp` / `side_comp` 为**制造尺寸补偿**（mm），缺省自动启用：
+
+- **fb_comp**（列宽补偿）：前壁/后壁/盖面/插舌的展开宽 = 内长 + fb_comp。缺省 `10 × 纸厚`（如 1.5mm 纸 → +15mm，盒外长≈内长+16）。设为 `0` 关闭。
+- **side_comp**（侧壁宽补偿）：侧壁内段展开宽（网坐标 Y 方向）= 内宽 + side_comp，靠厚度折回保持盒内宽不变。缺省 `2mm`。设为 `0` 关闭。
+- 底面长/宽始终 = 内尺寸（盒内长宽 = 输入值），壁高 = 内高（立体几何，厚度在盒外）。
 
 返回：
 

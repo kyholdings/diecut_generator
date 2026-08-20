@@ -61,6 +61,8 @@ class DieCutGeometry:
     hook_ratio: float = 0.33          # 凸起钩高度比例（hook_h = W * hook_ratio）
     board_compensation: bool = True   # 是否启用纸厚补偿（内外尺寸换算）
     layers: List[str] = field(default_factory=lambda: ["CUT", "CREASE"])  # 活跃图层
+    column_width: float = 0.0         # 制造尺寸列宽（前壁/后壁/盖面/插舌）= length + fb_comp
+    side_height: float = 0.0          # 侧壁内段制造宽（网坐标 Y 方向）= width + side_comp
 
     @property
     def bounds(self) -> Tuple[float, float, float, float]:
@@ -91,6 +93,8 @@ def build_airplane_box(
     hook_ratio: float = 0.33,
     board_compensation: bool | None = None,
     layers: List[str] | None = None,
+    fb_comp: float | None = None,
+    side_comp: float | None = None,
 ) -> DieCutGeometry:
     """
     构建自锁式飞机盒刀版几何（按折叠逻辑严格推算尺寸）。
@@ -133,12 +137,16 @@ def build_airplane_box(
         W = max(W - 2 * t, 1.0)
         H = max(H - t, 1.0)
 
-    Hw = H + t                                  # 前后壁展开高度（一折）
-    tab = max(float(tab_depth) if tab_depth else H, 4.0)   # 插舌高度 = 盒高 H（梯形圆角+两侧耳翼）
+    # 立体几何尺寸（内尺寸 L×W×H 为基准，纸厚 t，壁从底面内表面折起）：
+    #   - 前壁/后壁展开高 = 盒内高 H（壁内表面 z∈[0,H]，厚度在盒外）
+    #   - 侧壁内段高 = H；外段 = H - t（折入贴盒底，厚度占用 t）
+    #   - 盖翼/后壁翼/锁扣翼 = H - t（折入贴壁，厚度占用 t）
+    Hw = H                                      # 前后壁展开高度 = 盒内高
+    tab = max(float(tab_depth) if tab_depth else H, 4.0)   # 插舌深度 = 盒高 H
     wing_w = max(H - t, 4.0)                    # 盖翼宽度（两折 = H - t）
     back_w = max(H - t, 4.0)                    # 后壁矩形翼宽度（腰部翼 = H - t）
     lock_w = max((H - t) * float(lock_ratio), 4.0)   # 前壁锁扣翼（底部翼 = 腰部翼尺寸 H - t）
-    side_inner = Hw                             # 大侧壁内段（侧壁主体，一折 = H + t）
+    side_inner = Hw                             # 大侧壁内段（侧壁主体 = 盒内高）
     side_outer = max(H - t, 4.0)                # 大侧壁外段（折叠后插入盒底 = H - t）
     side_total = side_inner + side_outer        # 大侧壁总宽（两段）
     fold_seg = max(6.0, wing_w * float(fold_ratio))   # 两折翼插入段
@@ -171,7 +179,11 @@ def build_airplane_box(
     y4 = y3 + W             # 盖子顶面顶（高度 = 盒宽 W，盖住盒顶）
     y5 = y4 + tab           # 插舌顶（高度 = 盒高 H）
 
-    Lx = L                  # 列宽
+    fb_comp = float(fb_comp) if fb_comp is not None else 10.0 * t
+    Lx = L + fb_comp
+    side_comp = float(side_comp) if side_comp is not None else 2.0
+    y2_side = y2 + side_comp            # 侧壁面板制造宽（比内宽多 side_comp）
+    y2_base = y2                       # 底面/外段保持内宽
 
     segments: List[Segment] = []
 
@@ -287,8 +299,10 @@ def build_airplane_box(
         pts += [(0.0, y0), (-lock_w, y0), (-lock_w, y1), (0.0, y1)]
         # 底面左侧壁（内段 H+t + 外段插舌 H-t，末端三个凸起钩）
         pts.append((-side_total, y1))
-        pts += side_hooks(-side_total, y1, y2, up=True)
-        pts.append((0.0, y2))
+        pts += side_hooks(-side_total, y1, y2_base, up=True)
+        pts.append((-side_inner, y2_base))      # 外段顶边（外翼宽=内宽）
+        pts.append((-side_inner, y2_side))      # 内段台阶（侧壁制造宽）
+        pts.append((0.0, y2_side))              # 内段顶边
         # 后壁矩形翼（腰部翼，矩形 = 前壁锁扣翼，宽度 H-t）
         pts += [(-back_w, y2), (-back_w, y3), (0.0, y3)]
         # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形
@@ -327,9 +341,13 @@ def build_airplane_box(
         # 后壁矩形翼（右，矩形 = 前壁锁扣翼）
         pts += [(Lx + back_w, y3), (Lx + back_w, y2), (Lx, y2)]
         # 底面右侧壁（内段 H+t + 外段插舌 H-t，末端三个凸起钩，自上而下）
-        pts.append((Lx + side_total, y2))
-        pts += side_hooks(Lx + side_total, y2, y1, up=False)
-        pts.append((Lx, y1))
+        pts.append((max(L + side_total, Lx + back_w), y2))
+        pts.append((L + side_total, y2))
+        pts += side_hooks(L + side_total, y2, y1, up=False)
+        pts.append((L + side_inner, y1))          # 外段底边
+        pts.append((L + side_inner, y2_side))      # 内段右缘（制造宽）
+        pts.append((L, y2_side))                   # 内段顶边
+        pts.append((L, y1))                        # 内段左缘
         # 前壁锁扣翼（右）
         pts += [(Lx + lock_w, y1), (Lx + lock_w, y0), (Lx, y0)]
         return pts
@@ -350,7 +368,7 @@ def build_airplane_box(
     poly("crease", [(0.0, y3), (0.0, y4)])      # 盖面|盖翼
     poly("crease", [(0.0, y4), (0.0, y5)])      # 插舌|左翼（翼内边，闭合）
     poly("crease", [(Lx, y0), (Lx, y1)])
-    poly("crease", [(Lx, y1), (Lx, y2)])
+    poly("crease", [(L, y1), (L, y2)])
     poly("crease", [(Lx, y2), (Lx, y3)])
     poly("crease", [(Lx, y3), (Lx, y4)])
     poly("crease", [(Lx, y4), (Lx, y5)])        # 插舌|右翼（翼内边，闭合）
@@ -360,8 +378,8 @@ def build_airplane_box(
     poly("crease", [(-back_fold, y2), (-back_fold, y3)])
     poly("crease", [(Lx + back_fold, y2), (Lx + back_fold, y3)])
     # 大侧壁内部折线（内段|外段，折叠后插入盒底）
-    poly("crease", [(-side_inner, y1), (-side_inner, y2)])
-    poly("crease", [(Lx + side_inner, y1), (Lx + side_inner, y2)])
+    poly("crease", [(-side_inner, y1), (-side_inner, y2_side)])
+    poly("crease", [(L + side_inner, y1), (L + side_inner, y2_side)])
 
     # ---- 分刀线（相邻侧翼之间切开）----
     # 锁扣翼 与 侧壁 之间
@@ -380,12 +398,12 @@ def build_airplane_box(
     slot_center = (y1 + y2) / 2.0
     slot_low = slot_center - hook_h / 2.0
     slot_high = slot_center + hook_h / 2.0
-    slot_center_x = min(hook_d, Lx / 2.0)
-    slot_half_width = min(t / 2.0, slot_center_x, (Lx / 2.0) - slot_center_x)
+    slot_center_x = min(hook_d, L / 2.0)
+    slot_half_width = min(t / 2.0, slot_center_x, (L / 2.0) - slot_center_x)
     left_slot_x0 = slot_center_x - slot_half_width
     left_slot_x1 = slot_center_x + slot_half_width
-    right_slot_x0 = Lx - left_slot_x1
-    right_slot_x1 = Lx - left_slot_x0
+    right_slot_x0 = L - left_slot_x1
+    right_slot_x1 = L - left_slot_x0
     poly("cut", [
         (left_slot_x0, slot_low), (left_slot_x1, slot_low),
         (left_slot_x1, slot_high), (left_slot_x0, slot_high),
@@ -435,6 +453,8 @@ def build_airplane_box(
         hook_ratio=hook_ratio,
         board_compensation=internal,
         layers=list(layers) if layers else ["CUT", "CREASE"],
+        column_width=Lx,
+        side_height=W + side_comp,
     )
 
 
@@ -481,6 +501,8 @@ def geometry_to_json(geo: DieCutGeometry) -> dict:
             "wing_width": geo.wing_width,
             "side_inner": geo.side_inner,
             "side_outer": geo.side_outer,
+            "column_width": geo.column_width or geo.length,
+            "side_height": geo.side_height or geo.width,
         },
         "bounds": dict(zip(("min_x", "min_y", "max_x", "max_y"), geo.bounds)),
         "layers": list(geo.layers),
