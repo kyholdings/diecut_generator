@@ -23,6 +23,8 @@
       padding: 12px;
     }
     #preview-box svg { max-width: 100%; height: auto; }
+    #preview-3d { min-height: 520px; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; cursor: grab; }
+    #preview-3d:active { cursor: grabbing; }
     .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
     .meta-item { background: #f8fafc; border-radius: 8px; padding: 8px 10px; font-size: .82rem; }
     .meta-item b { display: block; color: #0f172a; font-size: .95rem; }
@@ -154,13 +156,38 @@
             </div>
           </div>
 
-          <div id="preview-box">
+          <div v-if="result && !offlineMode" class="d-flex gap-2 mb-2 flex-wrap">
+            <button type="button" class="btn btn-sm btn-outline-primary" @click="toggle3D">
+              {{ show3D ? '返回 2D 刀版' : '打开 3D 折叠预览' }}
+            </button>
+            <template v-if="show3D">
+              <button type="button" class="btn btn-sm btn-outline-secondary" @click="toggleFold3D">
+                {{ folded3D ? '展开盒体' : '折叠盒体' }}
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-success" @click="playFold3D">
+                ▶ 自动播放
+              </button>
+              <div class="d-flex align-items-center gap-2 ms-1" style="min-width:220px; flex:1 1 220px;">
+                <input type="range" min="0" max="1" step="0.001" v-model.number="fold3DProgress"
+                       @input="onFoldSlider" class="form-range flex-grow-1" title="折叠进度" />
+                <span class="text-muted small" style="width:56px; text-align:right;">{{ (fold3DProgress * 100).toFixed(0) }}%</span>
+              </div>
+            </template>
+          </div>
+          <div v-if="show3D && !offlineMode" class="mb-2 small text-muted">
+            <span class="badge badge-cut me-1">实线 = 模切</span>
+            <span class="badge badge-crease">虚线 = 压痕</span>
+            <span class="ms-2">拖动旋转 · 滚轮缩放 · 滑杆逐帧折叠</span>
+          </div>
+
+          <div v-if="!show3D" id="preview-box">
             <div v-if="!result && !loading" class="text-muted">
               填写左侧参数后点击“生成刀版”
             </div>
             <div v-else-if="loading" class="spinner-border text-primary"></div>
             <div v-else-if="result" v-html="svgContent"></div>
           </div>
+          <div v-if="show3D" id="preview-3d"></div>
 
           <div v-if="result && !offlineMode" class="mt-3">
             <div class="meta-grid mb-3">
@@ -213,6 +240,8 @@
 
   <script src="https://cdn.jsdelivr.net/npm/vue@3.4.31/dist/vue.global.prod.js"></script>
   <script src="/static/diecut-offline.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script src="/static/diecut-3d.js"></script>
   <script>
     const { createApp } = Vue;
 
@@ -224,6 +253,9 @@
           result: null,
           svgContent: '',
           offlineMode: false,
+          show3D: false,
+          folded3D: false,
+          fold3DProgress: 0,
           form: {
             length: 200,
             width: 150,
@@ -284,6 +316,8 @@
             this.result = data;
             const svgResp = await fetch(data.svg_url);
             this.svgContent = await svgResp.text();
+            this.show3D = false;
+            this.folded3D = false;
             localStorage.setItem('diecut-last-result', JSON.stringify(data));
             localStorage.setItem('diecut-last-svg', this.svgContent);
           } catch (e) {
@@ -306,6 +340,34 @@
             }
           } finally {
             this.loading = false;
+          }
+        },
+        toggle3D() {
+          this.show3D = !this.show3D;
+          if (this.show3D && window.Diecut3D && this.result.geometry) {
+            this.$nextTick(() => {
+              window.Diecut3D.update(this.result.geometry, this.result.meta);
+              this.fold3DProgress = 0;
+              this.folded3D = false;
+            });
+          }
+        },
+        onFoldSlider() {
+          if (window.Diecut3D) {
+            window.Diecut3D.setProgress(this.fold3DProgress);
+            this.folded3D = this.fold3DProgress >= 0.5;
+          }
+        },
+        toggleFold3D() {
+          if (window.Diecut3D) {
+            this.folded3D = window.Diecut3D.toggleFold();
+            this.fold3DProgress = window.Diecut3D.getProgress();
+          }
+        },
+        playFold3D() {
+          if (window.Diecut3D) {
+            window.Diecut3D.play();
+            this.folded3D = window.Diecut3D.getProgress() >= 0.5;
           }
         },
       },

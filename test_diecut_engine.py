@@ -17,6 +17,8 @@ class DieCutEngineTests(unittest.TestCase):
         self.assertEqual(validate_geometry(geometry), [])
         contract = geometry_to_json(geometry)
         self.assertEqual(contract["schema_version"], "1.0")
+        self.assertEqual(contract["derived"]["wall_height"], 63)
+        self.assertEqual(contract["derived"]["tab_depth"], 60)
         self.assertEqual(len(contract["panels"]), 5)
         self.assertEqual(len(contract["fold_sequence"]), 4)
 

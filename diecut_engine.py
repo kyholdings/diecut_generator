@@ -473,6 +473,15 @@ def geometry_to_json(geo: DieCutGeometry) -> dict:
             "height": geo.height,
             "thickness": geo.thickness,
         },
+        "derived": {
+            "wall_height": geo.wall_height,
+            "bottom_height": geo.bottom_height,
+            "lid_height": geo.lid_height,
+            "tab_depth": geo.tab_depth,
+            "wing_width": geo.wing_width,
+            "side_inner": geo.side_inner,
+            "side_outer": geo.side_outer,
+        },
         "bounds": dict(zip(("min_x", "min_y", "max_x", "max_y"), geo.bounds)),
         "layers": list(geo.layers),
         "panels": [

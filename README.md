@@ -41,6 +41,10 @@ python app.py
 
 参数变化会自动防抖刷新预览；服务暂时不可用时，浏览器会使用本地几何引擎按当前参数生成 SVG。最近一次服务器结果也会保存在浏览器本地作为回退缓存。离线模式仅支持 SVG 预览，PDF / DXF 需要恢复服务器连接。
 
+生成成功后可打开 **Three.js 3D 折叠预览**：支持进度滑杆逐帧折叠、自动播放、展开/折叠动画、鼠标拖动旋转、滚轮缩放。每个面板的纹理就是真实刀模线（CUT 实线 / CREASE 虚线），张开图与 2D 刀版逐像素一致；折叠完成后外段折入盒底、插舌垂下插入盒内前壁。3D 视图仅用于结构检查，生产尺寸仍以 SVG / PDF / DXF 为准。
+
+3D 折叠采用正向运动学：面板以折痕为锚点嵌套在 `THREE.Group` 中，子翼继承父面板的局部旋转，算法参考 [Somacharitha/dieline-fold](https://github.com/Somacharitha/dieline-fold)。面板 mesh 直接用刀版网坐标几何，保证张开图精确还原刀线图。验证测试见 `tests/3d/`（张开图一致性 / 网区域 / 折叠审计 / 插入盒底，全部 PASS 才正确）。
+
 ## API
 
 ### `POST /api/diecut/generate`
@@ -96,7 +100,7 @@ python app.py
 
 ## 刀版结构
 
-```
+```text
         ┌──────────────────────────────┐
   翼 ───┤ 插舌 H（等腰梯形翼）         ├─── 翼
         ├──────────────────────────────┤
@@ -120,7 +124,7 @@ python app.py
 
 ## 项目结构
 
-```
+```text
 diecut_generator/
 ├── app.py                 # Flask 后端 + API
 ├── diecut_engine.py       # 刀版几何计算 / PDF / DXF / SVG 生成
