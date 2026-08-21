@@ -16,7 +16,7 @@ node verify-flat.js     # 张开图 == 原刀线图（每个面板 3D 范围必�
 node verify-logic.js    # 面板纹理网区域一致性
 node audit-box.js       # 折叠后各面板中心 + 法线审计（盒体组合正确性）
 node verify-fold.js     # 折叠最终态：外段钩端/插舌到达盒底
-node verify-sequence.js # 折叠顺序：前后壁→腰部两翼→侧壁+外段→盖面→盖翼→插舌→耳翼
+node verify-sequence.js # 折叠顺序：前后壁→腰部两翼→侧壁+外段→盖翼→盖面→插舌两翼→插舌
 ```
 
 全部 PASS（exit 0）即 3D 模型正确。
