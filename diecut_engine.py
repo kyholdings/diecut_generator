@@ -319,7 +319,8 @@ def build_airplane_box(
         pts.append((0.0, y2 + t))                   # 后壁左缘底部缺口（竖直）
         # 后壁矩形翼（腰部翼，矩形 = 前壁锁扣翼；上下各缩 t，竖直升/降边避免斜线）
         pts += [(-back_w, y2 + t), (-back_w, y3 - t), (0.0, y3 - t)]
-        pts.append((0.0, y3 + t))                   # 后壁左缘顶部缺口（竖直）
+        # 后腰翼与盖翼交汇处 R(=t) 半圆弧：原刀线延长到后壁边缘交汇，3mm 直径圆角
+        pts += arc_pts(0.0, y3, t, -math.pi / 2, math.pi / 2)
         # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形（上下各缩 t）
         pts += rounded_polyline(
             [(ofs_l, y3 + t), (ofs_l - wing_w, y3 + t + slant_w),
@@ -328,7 +329,8 @@ def build_airplane_box(
             {1, 2},
         )
         pts.append((0.0, y4 - t))                  # 盖翼顶边 → 后壁左缘（水平）
-        pts.append((0.0, y4 + t))                  # 后壁左缘顶部缺口（竖直）
+        # 盖翼与耳翼交汇处 R(=t) 半圆弧：原刀线延长交汇，3mm 直径圆角
+        pts += arc_pts(0.0, y4, t, -math.pi / 2, math.pi / 2)
         return pts
 
     def tuck_outline() -> List[Tuple[float, float]]:
@@ -348,7 +350,8 @@ def build_airplane_box(
     def right_side_points() -> List[Tuple[float, float]]:
         """右侧轮廓，从 (Lx,y4) 到 (Lx,y0)。"""
         pts: List[Tuple[float, float]] = []
-        pts.append((colW, y4 - t))                  # 后壁右缘顶部缺口（竖直，接 tuck_outline 结束点）
+        # 盖翼与耳翼交汇处 R(=t) 半圆弧（接 tuck_outline 结束点 (colW,y4+t)，凸向盒内/左侧）
+        pts += arc_pts(colW, y4, t, math.pi / 2, 3 * math.pi / 2)
         # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形（上下各缩 t）
         pts += rounded_polyline(
             [(ofs_l + lidW, y4 - t), (ofs_l + lidW + wing_w, y4 - t - slant_w),
@@ -358,7 +361,8 @@ def build_airplane_box(
         )
         # 后壁矩形翼（右，矩形 = 前壁锁扣翼；上下各缩 t，竖直升/降边避免斜线）
         pts.append((colW, y3 + t))                  # 盖翼底边 → 后壁右缘（水平）
-        pts.append((colW, y3 - t))                  # 后壁右缘顶部缺口（竖直）
+        # 盖翼与后腰翼交汇处 R(=t) 半圆弧（凸向盒内/左侧），原刀线延长交汇
+        pts += arc_pts(colW, y3, t, math.pi / 2, 3 * math.pi / 2)
         pts += [(colW + back_w, y3 - t), (colW + back_w, y2 + t), (colW, y2 + t)]   # 后腰翼
         pts.append((colW, y2_side))                 # 后壁右缘底部缺口（竖直）
         # 底面右侧壁（内段顶边到外段顶角，向下走到外段底角，末端凸起钩；外段垂直居中缩进）
