@@ -91,6 +91,7 @@ def build_airplane_box(
     fold_ratio: float = 0.3,
     lock_ratio: float = 1.0,
     corner_radius: float = 0.0,
+    tab_ear_radius: float = 0.0,
     hook_ratio: float = 0.33,
     board_compensation: bool | None = None,
     layers: List[str] | None = None,
@@ -174,6 +175,9 @@ def build_airplane_box(
     )
 
     side_comp = float(side_comp) if side_comp is not None else 2.0
+    # 翼根交汇处外凸圆喙圆角半径：约纸厚量级，两翼根部"水平+竖直"转折处圆成朝外的小圆喙
+    # （左右镜像共用同一半径，保证轴对称；无折线、无燕尾尖刺）
+    beak_r = _clamp(t * 0.7, 1.0, 3.5)
 
     # 纵向分层（从下到上）
     y0 = 0.0
@@ -319,8 +323,8 @@ def build_airplane_box(
         pts.append((0.0, y2 + t))                   # 后壁左缘底部缺口（竖直）
         # 后壁矩形翼（腰部翼，矩形 = 前壁锁扣翼；上下各缩 t，竖直升/降边避免斜线）
         pts += [(-back_w, y2 + t), (-back_w, y3 - t), (0.0, y3 - t)]
-        # 后腰翼与盖翼交汇处 R(=t) 半圆弧：原刀线延长到后壁边缘交汇，3mm 直径圆角
-        pts += arc_pts(0.0, y3, t, -math.pi / 2, math.pi / 2)
+        # 外凸圆喙交汇（轴对称）：后腰翼顶边(0,y3-t) → 水平到盖翼左缘(ofs_l,y3-t) → 竖直到盖翼底边(ofs_l,y3+t)
+        pts += rounded_polyline([(0.0, y3 - t), (ofs_l, y3 - t), (ofs_l, y3 + t)], beak_r, {1})
         # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形（上下各缩 t）
         pts += rounded_polyline(
             [(ofs_l, y3 + t), (ofs_l - wing_w, y3 + t + slant_w),
@@ -328,30 +332,28 @@ def build_airplane_box(
             corner_radius,
             {1, 2},
         )
-        pts.append((0.0, y4 - t))                  # 盖翼顶边 → 后壁左缘（水平）
-        # 盖翼与耳翼交汇处 R(=t) 半圆弧：原刀线延长交汇，3mm 直径圆角
-        pts += arc_pts(0.0, y4, t, -math.pi / 2, math.pi / 2)
+        # 外凸圆喙交汇（朝盒内 +x 凸，轴对称）：盖翼顶边(ofs_l,y4-t) → 耳翼底边(0,y4+t)
+        pts += rounded_polyline([(ofs_l, y4 - t), (ofs_l, y4 + t), (0.0, y4 + t)], beak_r, {1})
         return pts
 
     def tuck_outline() -> List[Tuple[float, float]]:
-        """插舌本体与左右耳翼的统一对称外轮廓。"""
+        """插舌本体与左右耳翼的统一对称外轮廓（耳翼为直角三角形，底边水平，顶角圆角由 tab_ear_radius 控制）。"""
+        apex_r = _clamp(tab_ear_radius, 0.0, tab_ear_w * 0.5)
         outline = [
-            (0.0, y4 + t),
-            (-tab_ear_w, y4 + t + tab_ear_slant),
-            (-tab_ear_w, y5 - t - tab_ear_slant),
-            (0.0, y5 - t),
-            (colW, y5 - t),
-            (colW + tab_ear_w, y5 - t - tab_ear_slant),
-            (colW + tab_ear_w, y4 + t + tab_ear_slant),
-            (colW, y4 + t),
+            (0.0, y4 + t),                            # 左耳翼底角（直角，插舌左壁底）
+            (-tab_ear_w, y4 + t),                     # 左耳翼外底角（水平伸出）
+            (0.0, y5 - t),                            # 左耳翼顶角（收回插舌左壁顶）
+            (colW, y5 - t),                           # 右耳翼顶角
+            (colW + tab_ear_w, y4 + t),               # 右耳翼外底角（水平伸出）
+            (colW, y4 + t),                           # 右耳翼底角（直角，插舌右壁底）
         ]
-        return rounded_polyline(outline, corner_radius, set(range(1, 7)))
+        return rounded_polyline(outline, apex_r, {1, 4})
 
     def right_side_points() -> List[Tuple[float, float]]:
         """右侧轮廓，从 (Lx,y4) 到 (Lx,y0)。"""
         pts: List[Tuple[float, float]] = []
-        # 盖翼与耳翼交汇处 R(=t) 半圆弧（接 tuck_outline 结束点 (colW,y4+t)，凸向盒内/左侧）
-        pts += arc_pts(colW, y4, t, math.pi / 2, 3 * math.pi / 2)
+        # 外凸圆喙交汇（轴对称）：耳翼底边(colW,y4+t) → 水平到盖翼右缘(ofs_l+lidW,y4+t) → 竖直到盖翼顶边(ofs_l+lidW,y4-t)
+        pts += rounded_polyline([(colW, y4 + t), (ofs_l + lidW, y4 + t), (ofs_l + lidW, y4 - t)], beak_r, {1})
         # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形（上下各缩 t）
         pts += rounded_polyline(
             [(ofs_l + lidW, y4 - t), (ofs_l + lidW + wing_w, y4 - t - slant_w),
@@ -360,9 +362,9 @@ def build_airplane_box(
             {1, 2},
         )
         # 后壁矩形翼（右，矩形 = 前壁锁扣翼；上下各缩 t，竖直升/降边避免斜线）
-        pts.append((colW, y3 + t))                  # 盖翼底边 → 后壁右缘（水平）
-        # 盖翼与后腰翼交汇处 R(=t) 半圆弧（凸向盒内/左侧），原刀线延长交汇
-        pts += arc_pts(colW, y3, t, math.pi / 2, 3 * math.pi / 2)
+        pts.append((ofs_l + lidW, y3 + t))          # 盖翼底边内端
+        # 外凸圆喙交汇（朝盒内 -x 凸，轴对称）：盖翼底边(ofs_l+lidW,y3+t) → 后腰翼顶边(colW,y3-t)
+        pts += rounded_polyline([(ofs_l + lidW, y3 + t), (ofs_l + lidW, y3 - t), (colW, y3 - t)], beak_r, {1})
         pts += [(colW + back_w, y3 - t), (colW + back_w, y2 + t), (colW, y2 + t)]   # 后腰翼
         pts.append((colW, y2_side))                 # 后壁右缘底部缺口（竖直）
         # 底面右侧壁（内段顶边到外段顶角，向下走到外段底角，末端凸起钩；外段垂直居中缩进）
@@ -439,10 +441,8 @@ def build_airplane_box(
     # ---- 可选图层：防尘耳半切线（HALFCUT）----
     if layers and "HALFCUT" in layers:
         # 左右插舌耳翼中线半切线，便于撕除防尘耳（随翼收缩）
-        poly("halfcut", [(-tab_ear_w * 0.5, y4 + t + tab_ear_slant * 0.5),
-                         (-tab_ear_w * 0.5, y5 - t - tab_ear_slant * 0.5)])
-        poly("halfcut", [(colW + tab_ear_w * 0.5, y4 + t + tab_ear_slant * 0.5),
-                         (colW + tab_ear_w * 0.5, y5 - t - tab_ear_slant * 0.5)])
+        poly("halfcut", [(-tab_ear_w * 0.5, y4 + t), (-tab_ear_w * 0.5, y5 - t)])
+        poly("halfcut", [(colW + tab_ear_w * 0.5, y4 + t), (colW + tab_ear_w * 0.5, y5 - t)])
 
     # ---- 可选图层：关键尺寸标注线（DIMENSION）----
     if layers and "DIMENSION" in layers:
@@ -574,11 +574,11 @@ def geometry_to_json(geo: DieCutGeometry) -> dict:
              "shape": [[0, t], [0, geo.lid_height - t], [-wing_w, geo.lid_height - t - slant_w], [-wing_w, t + slant_w]]},
             {"id": "lid_wing_right", "bounds": [colW - ofs_l, y3 + t, colW - ofs_l + wing_w, y4 - t], "anchor": [colW - ofs_l, y3],
              "shape": [[0, t], [0, geo.lid_height - t], [wing_w, geo.lid_height - t - slant_w], [wing_w, t + slant_w]]},
-            # 插舌耳翼（等腰梯形；上下各缩 t）
+            # 插舌耳翼（直角三角形；底边水平，直角靠插舌侧壁，上下各缩 t）
             {"id": "tuck_ear_left", "bounds": [-tab_ear_w, y4 + t, 0.0, y5 - t], "anchor": [0.0, y4],
-             "shape": [[0, t], [0, geo.tab_depth - t], [-tab_ear_w, geo.tab_depth - t - tab_ear_slant], [-tab_ear_w, t + tab_ear_slant]]},
+             "shape": [[0, t], [-tab_ear_w, t], [0, geo.tab_depth - t]]},
             {"id": "tuck_ear_right", "bounds": [colW, y4 + t, colW + tab_ear_w, y5 - t], "anchor": [colW, y4],
-             "shape": [[0, t], [0, geo.tab_depth - t], [tab_ear_w, geo.tab_depth - t - tab_ear_slant], [tab_ear_w, t + tab_ear_slant]]},
+             "shape": [[0, t], [tab_ear_w, t], [0, geo.tab_depth - t]]},
             # 大侧壁内段（成盒壁）
             {"id": "left_wall", "bounds": [ofs_b - side_inner, y1, ofs_b, y2_side], "anchor": [ofs_b, y1], "shape": None},
             {"id": "right_wall", "bounds": [ofs_b + Lx, y1, ofs_b + Lx + side_inner, y2_side], "anchor": [ofs_b + Lx, y1], "shape": None},

@@ -76,6 +76,7 @@ def generate():
 
     # 新增参数（Step 3）：圆角半径 / 凸起钩比例 / 纸厚补偿 / 图层
     corner_radius = _float(data.get("corner_radius", 0.0), 0.0)
+    tab_ear_radius = _float(data.get("tab_ear_radius", 0.0), 0.0)
     hook_ratio = _float(data.get("hook_ratio", 0.33), 0.33)
     if hook_ratio < 0.2:
         hook_ratio = 0.2
@@ -110,6 +111,7 @@ def generate():
             fold_ratio=fold_ratio,
             lock_ratio=lock_ratio,
             corner_radius=corner_radius,
+            tab_ear_radius=tab_ear_radius,
             hook_ratio=hook_ratio,
             board_compensation=board_compensation,
             layers=layers,

@@ -99,6 +99,11 @@
                 <div class="form-text">默认 0 = 直角；>0 时插舌顶部圆角化（自动钳制）</div>
               </div>
               <div class="mt-2">
+                <label class="form-label">插舌耳翼顶圆角 (mm)</label>
+                <input type="number" class="form-control" v-model.number="form.tab_ear_radius" min="0" step="0.5" />
+                <div class="form-text">默认 0 = 尖角三角形耳翼；>0 时插舌两耳翼顶角圆弧化（自动钳制）</div>
+              </div>
+              <div class="mt-2">
                 <label class="form-label">凸起钩高度比例</label>
                 <input type="number" class="form-control" v-model.number="form.hook_ratio" min="0.2" max="0.5" step="0.01" />
                 <div class="form-text">默认 0.33（≈ W/3）；范围 0.2–0.5，影响侧壁互锁强度</div>
@@ -270,6 +275,7 @@
             fold_ratio: 0.3,
             lock_ratio: 1.0,
             corner_radius: 0,
+            tab_ear_radius: 0,
             hook_ratio: 0.33,
             board_compensation: true,
             layers: ['CUT', 'CREASE'],
