@@ -308,14 +308,18 @@ def build_airplane_box(
         pts: List[Tuple[float, float]] = []
         # 前壁锁扣翼（底部翼 = 腰部翼尺寸 H-t；沿主面板方向上下各缩 t 顺畅插入盒内）
         pts += [(0.0, y0), (0.0, y0 + t), (-lock_w, y0 + t), (-lock_w, y1 - t), (0.0, y1 - t), (0.0, y1)]
+        pts.append((0.0, y_in_lo))                  # 前壁顶 → 外段底边台阶（竖直，避免斜线）
         # 底面左侧壁（内段 + 外段插舌，末端凸起钩；外段相对内段垂直居中缩进 side_comp/2）
-        pts.append((ofs_b - side_total, y_in_lo))
+        pts.append((ofs_b - side_total, y_in_lo))   # 外段底边（水平）
         pts += side_hooks(ofs_b - side_total, y_in_lo, y_in_hi, up=True)
         pts.append((ofs_b - side_inner, y_in_hi))   # 外段顶边（居中缩进）
         pts.append((ofs_b - side_inner, y2_side))   # 内段台阶（内段全高）
-        pts.append((ofs_b, y2_side))                # 内段顶边（= 制造宽顶，与后腰翼共线）
-        # 后壁矩形翼（腰部翼，矩形 = 前壁锁扣翼；上下各缩 t）
+        pts.append((ofs_b, y2_side))                # 内段顶边（= 制造宽顶）
+        pts.append((0.0, y2_side))                  # 内段顶边 → 后壁左缘（水平）
+        pts.append((0.0, y2 + t))                   # 后壁左缘底部缺口（竖直）
+        # 后壁矩形翼（腰部翼，矩形 = 前壁锁扣翼；上下各缩 t，竖直升/降边避免斜线）
         pts += [(-back_w, y2 + t), (-back_w, y3 - t), (0.0, y3 - t)]
+        pts.append((0.0, y3 + t))                   # 后壁左缘顶部缺口（竖直）
         # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形（上下各缩 t）
         pts += rounded_polyline(
             [(ofs_l, y3 + t), (ofs_l - wing_w, y3 + t + slant_w),
@@ -323,6 +327,8 @@ def build_airplane_box(
             corner_radius,
             {1, 2},
         )
+        pts.append((0.0, y4 - t))                  # 盖翼顶边 → 后壁左缘（水平）
+        pts.append((0.0, y4 + t))                  # 后壁左缘顶部缺口（竖直）
         return pts
 
     def tuck_outline() -> List[Tuple[float, float]]:
@@ -342,6 +348,7 @@ def build_airplane_box(
     def right_side_points() -> List[Tuple[float, float]]:
         """右侧轮廓，从 (Lx,y4) 到 (Lx,y0)。"""
         pts: List[Tuple[float, float]] = []
+        pts.append((colW, y4 - t))                  # 后壁右缘顶部缺口（竖直，接 tuck_outline 结束点）
         # 盖面盖翼：左右外侧拐角统一圆角化，形成完整等腰梯形（上下各缩 t）
         pts += rounded_polyline(
             [(ofs_l + lidW, y4 - t), (ofs_l + lidW + wing_w, y4 - t - slant_w),
@@ -349,15 +356,20 @@ def build_airplane_box(
             corner_radius,
             {1, 2},
         )
-        # 后壁矩形翼（右，矩形 = 前壁锁扣翼；上下各缩 t，严格镜像左翼）
-        pts += [(colW, y3 - t), (colW + back_w, y3 - t), (colW + back_w, y2 + t)]
+        # 后壁矩形翼（右，矩形 = 前壁锁扣翼；上下各缩 t，竖直升/降边避免斜线）
+        pts.append((colW, y3 + t))                  # 盖翼底边 → 后壁右缘（水平）
+        pts.append((colW, y3 - t))                  # 后壁右缘顶部缺口（竖直）
+        pts += [(colW + back_w, y3 - t), (colW + back_w, y2 + t), (colW, y2 + t)]   # 后腰翼
+        pts.append((colW, y2_side))                 # 后壁右缘底部缺口（竖直）
         # 底面右侧壁（内段顶边到外段顶角，向下走到外段底角，末端凸起钩；外段垂直居中缩进）
         pts.append((ofs_b + Lx, y2_side))               # 内段顶角
         pts.append((ofs_b + Lx + side_inner, y2_side))  # 内段|外段分界线顶
         pts.append((ofs_b + Lx + side_inner, y_in_hi))  # 外段顶角（居中缩进）
         pts += side_hooks(ofs_b + Lx + side_total, y_in_hi, y_in_lo, up=False)
+        pts.append((colW, y_in_lo))                 # 外段底边 → 前壁顶台阶（水平，避免斜线）
+        pts.append((colW, y1))                      # 台阶（竖直）
         # 前壁锁扣翼（右；上下各缩 t，严格镜像左翼：含前壁右缘上下缺口 + 前壁底边角）
-        pts += [(colW, y1), (colW, y1 - t), (colW + lock_w, y1 - t), (colW + lock_w, y0 + t), (colW, y0 + t), (colW, y0)]
+        pts += [(colW, y1 - t), (colW + lock_w, y1 - t), (colW + lock_w, y0 + t), (colW, y0 + t), (colW, y0)]
         return pts
 
     # ---- 外轮廓（模切线）----
@@ -392,15 +404,7 @@ def build_airplane_box(
     poly("crease", [(ofs_b + Lx + side_inner + gap, y_in_lo), (ofs_b + Lx + side_inner + gap, y_in_hi)])
 
     # ---- 分刀线（相邻侧翼之间切开）----
-    # 锁扣翼 与 侧壁 之间
-    poly("cut", [(-lock_w, y1), (0.0, y1)])
-    poly("cut", [(colW, y1), (colW + lock_w, y1)])
-    # 侧壁 与 后壁矩形翼 之间
-    poly("cut", [(-back_w, y2), (0.0, y2)])
-    poly("cut", [(colW, y2), (colW + back_w, y2)])
-    # 后壁矩形翼 与 盖翼 之间
-    poly("cut", [(-back_w, y3), (0.0, y3)])
-    poly("cut", [(colW, y3), (colW + back_w, y3)])
+    # 两翼收缩后，翼边界已由外轮廓定义，分刀线在原 y1/y2/y3 悬空，故不再生成
 
     # ---- 底面侧壁凸钩对应的插口 ----
     # 插口沿盒宽方向开刀，位置与左右侧壁凸钩中心对齐，并关于底面中心镜像。
