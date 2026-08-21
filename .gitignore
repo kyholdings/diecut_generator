@@ -14,3 +14,6 @@ outputs/
 # 系统
 .DS_Store
 Thumbs.db
+
+# 项目级 agent 说明（含本机代理/部署路径等内部信息，不公开）
+CLAUDE.md
