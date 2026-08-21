@@ -60,53 +60,53 @@
     var L = g.dimensions.length;
     var der = g.derived || {};
     var Hw = der.wall_height, Wb = der.bottom_height, lidH = der.lid_height, tab = der.tab_depth;
-    var colW = der.column_width || L;
-    var sideH = der.side_height || Wb;
     var wing = der.wing_width, sideInner = der.side_inner, sideOuter = der.side_outer;
     var blank = m.blank || {};
     var back = blank.back_flap_width_mm || wing;
     var lock = blank.lock_width_mm || wing;
-    var lidSlant = Math.min(wing * 0.3, 0.15 * L);
-    var tabEarSlant = Math.min(12.0, tab * 0.2);
     var hookD = Math.max(8, g.dimensions.height * 0.15);   // 大侧壁外段末端凸起钩深度
     var outerLen = sideOuter + hookD;                       // 外段面板含钩的实际净长
-    var sideTotal = sideInner + sideOuter;                  // 大侧壁总宽（不含钩）
-
-    var y0 = 0, y1 = Hw, y2 = Hw + Wb, y3 = Hw + Wb + Hw, y4 = y3 + lidH, y5 = y4 + tab;
+    // 面板坐标一律来自 geometry.panels，不在此推导；y1/y5 仅用于相机取景。
+    var y1 = Hw;                        // 前壁顶（底面底）
+    var y5 = Hw + Wb + Hw + lidH + tab; // 插舌顶（展开总高）
 
     var root = new THREE.Group();
     var hinges = [];
     var panels = [];
     var hingesById = {};
 
-    // 面板定义：id / parent / anchor(网坐标折线锚点) / netRect(网区域) / axis / to / fill / shape(可选梯形)
+    // 面板坐标（bounds / anchor / shape）完全来自 API geometry.panels —— 此处不硬编码坐标。
+    // DEFS 只保留折叠逻辑：id / parent / axis(旋转轴) / to / range(折叠阶段) / fill(纸板色)。
+    var byId = {};
+    (g.panels || []).forEach(function (p) { byId[p.id] = p; });
     var DEFS = [
-      { id: 'bottom', parent: 'root', anchor: [0, y1], net: [0, y1, L, y2], fill: FILL.base },
-      { id: 'front_wall', parent: 'bottom', anchor: [0, y1], net: [0, y0, colW, y1], axis: 'x', to: -HALF, range: STAGES.frontBack, fill: FILL.wall },
-      { id: 'back_wall', parent: 'bottom', anchor: [0, y2], net: [0, y2, colW, y3], axis: 'x', to: HALF, range: STAGES.frontBack, fill: FILL.wall },
-      { id: 'left_wall', parent: 'bottom', anchor: [0, y1], net: [-sideInner, y1, 0, y1 + sideH], axis: 'y', to: HALF, range: STAGES.sides, fill: FILL.side },
-      { id: 'right_wall', parent: 'bottom', anchor: [L, y1], net: [L, y1, L + sideInner, y1 + sideH], axis: 'y', to: -HALF, range: STAGES.sides, fill: FILL.side },
-      { id: 'left_outer', parent: 'left_wall', anchor: [-sideInner, y1], net: [-sideTotal - hookD, y1, -sideInner, y2], axis: 'y', to: Math.PI, range: STAGES.outer, fill: FILL.outer },
-      { id: 'right_outer', parent: 'right_wall', anchor: [L + sideInner, y1], net: [L + sideInner, y1, L + sideTotal + hookD, y2], axis: 'y', to: -Math.PI, range: STAGES.outer, fill: FILL.outer },
-      { id: 'lid', parent: 'back_wall', anchor: [0, y3], net: [0, y3, colW, y4], axis: 'x', to: HALF, range: STAGES.lid, fill: FILL.lid },
-      { id: 'tuck', parent: 'lid', anchor: [0, y4], net: [0, y4, colW, y5], axis: 'x', to: HALF, range: STAGES.tuck, fill: FILL.tuck },
-      { id: 'lock_left', parent: 'front_wall', anchor: [0, y1], net: [-lock, y0, 0, y1], axis: 'y', to: HALF, range: STAGES.waistWings, fill: FILL.wing },
-      { id: 'lock_right', parent: 'front_wall', anchor: [L, y1], net: [colW, y0, colW + lock, y1], axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
-      { id: 'back_wing_left', parent: 'back_wall', anchor: [0, y2], net: [-back, y2, 0, y3], axis: 'y', to: HALF, range: STAGES.waistWings, fill: FILL.wing },
-      { id: 'back_wing_right', parent: 'back_wall', anchor: [L, y2], net: [colW, y2, colW + back, y3], axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
-      { id: 'lid_wing_left', parent: 'lid', anchor: [0, y3], net: [-wing, y3, 0, y4], axis: 'y', to: HALF, range: STAGES.lidWings, fill: FILL.wing,
-        shape: [[0, 0], [0, lidH], [-wing, lidH - lidSlant], [-wing, lidSlant]] },
-      { id: 'lid_wing_right', parent: 'lid', anchor: [L, y3], net: [colW, y3, colW + wing, y4], axis: 'y', to: -HALF, range: STAGES.lidWings, fill: FILL.wing,
-        shape: [[0, 0], [0, lidH], [wing, lidH - lidSlant], [wing, lidSlant]] },
-      { id: 'tuck_ear_left', parent: 'tuck', anchor: [0, y4], net: [-wing, y4, 0, y5], axis: 'y', to: HALF, range: STAGES.tuckEars, fill: FILL.wing,
-        shape: [[0, 0], [0, tab], [-wing, tab - tabEarSlant], [-wing, tabEarSlant]] },
-      { id: 'tuck_ear_right', parent: 'tuck', anchor: [L, y4], net: [colW, y4, colW + wing, y5], axis: 'y', to: -HALF, range: STAGES.tuckEars, fill: FILL.wing,
-        shape: [[0, 0], [0, tab], [wing, tab - tabEarSlant], [wing, tabEarSlant]] },
+      { id: 'bottom', parent: 'root', axis: null, to: 0, range: [0, 1], fill: FILL.base },
+      { id: 'front_wall', parent: 'bottom', axis: 'x', to: -HALF, range: STAGES.frontBack, fill: FILL.wall },
+      { id: 'back_wall', parent: 'bottom', axis: 'x', to: HALF, range: STAGES.frontBack, fill: FILL.wall },
+      { id: 'left_wall', parent: 'bottom', axis: 'y', to: HALF, range: STAGES.sides, fill: FILL.side },
+      { id: 'right_wall', parent: 'bottom', axis: 'y', to: -HALF, range: STAGES.sides, fill: FILL.side },
+      { id: 'left_gap', parent: 'left_wall', axis: 'y', to: HALF, range: STAGES.outer, fill: FILL.outer },
+      { id: 'right_gap', parent: 'right_wall', axis: 'y', to: -HALF, range: STAGES.outer, fill: FILL.outer },
+      { id: 'left_insert', parent: 'left_gap', axis: 'y', to: HALF, range: STAGES.outer, fill: FILL.outer },
+      { id: 'right_insert', parent: 'right_gap', axis: 'y', to: -HALF, range: STAGES.outer, fill: FILL.outer },
+      { id: 'lid', parent: 'back_wall', axis: 'x', to: HALF, range: STAGES.lid, fill: FILL.lid },
+      { id: 'tuck', parent: 'lid', axis: 'x', to: HALF, range: STAGES.tuck, fill: FILL.tuck },
+      { id: 'lock_left', parent: 'front_wall', axis: 'y', to: HALF, range: STAGES.waistWings, fill: FILL.wing },
+      { id: 'lock_right', parent: 'front_wall', axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
+      { id: 'back_wing_left', parent: 'back_wall', axis: 'y', to: HALF, range: STAGES.waistWings, fill: FILL.wing },
+      { id: 'back_wing_right', parent: 'back_wall', axis: 'y', to: -HALF, range: STAGES.waistWings, fill: FILL.wing },
+      { id: 'lid_wing_left', parent: 'lid', axis: 'y', to: HALF, range: STAGES.lidWings, fill: FILL.wing },
+      { id: 'lid_wing_right', parent: 'lid', axis: 'y', to: -HALF, range: STAGES.lidWings, fill: FILL.wing },
+      { id: 'tuck_ear_left', parent: 'tuck', axis: 'y', to: HALF, range: STAGES.tuckEars, fill: FILL.wing },
+      { id: 'tuck_ear_right', parent: 'tuck', axis: 'y', to: -HALF, range: STAGES.tuckEars, fill: FILL.wing },
     ];
 
     function makePanel(def) {
-      var ax = def.anchor[0], ay = def.anchor[1];
-      var x0 = def.net[0], y0n = def.net[1], x1 = def.net[2], y1n = def.net[3];
+      var pd = byId[def.id];
+      if (!pd) return;   // API geometry 未提供该面板坐标则跳过
+      var ax = pd.anchor[0], ay = pd.anchor[1];
+      var x0 = pd.bounds[0], y0n = pd.bounds[1], x1 = pd.bounds[2], y1n = pd.bounds[3];
+      var shape = pd.shape || null;
       // mesh 局部坐标 = 网坐标 - 锚点
       var lx0 = x0 - ax, lx1 = x1 - ax, ly0 = y0n - ay, ly1 = y1n - ay;
       var localRect = [Math.min(lx0, lx1), Math.min(ly0, ly1), Math.max(lx0, lx1), Math.max(ly0, ly1)];
@@ -118,25 +118,38 @@
       // 父面板无缩放，因此子 hinge 在父帧 = 本面板锚点 - 父面板锚点。
       var parentDef = def.parent === 'root' ? null : DEFS.find(function (d) { return d.id === def.parent; });
       if (parentDef) {
-        hinge.position.set(ax - parentDef.anchor[0], ay - parentDef.anchor[1], 0);
+        var pa = byId[parentDef.id].anchor;
+        hinge.position.set(ax - pa[0], ay - pa[1], 0);
       } else {
         hinge.position.set(ax, ay, 0);
       }
       parent.add(hinge);
 
+      var boardT = g.dimensions && g.dimensions.thickness ? g.dimensions.thickness : 0;
       var mesh;
-      if (def.shape) {
-        // 梯形翼：ShapeGeometry，顶点为局部坐标（= 网坐标 - 锚点）
+      if (shape) {
+        // 梯形翼：ShapeGeometry / ExtrudeGeometry，顶点为局部坐标（= 网坐标 - 锚点）
         var shp = new THREE.Shape();
-        shp.moveTo(def.shape[0][0], def.shape[0][1]);
-        for (var s = 1; s < def.shape.length; s++) shp.lineTo(def.shape[s][0], def.shape[s][1]);
+        shp.moveTo(shape[0][0], shape[0][1]);
+        for (var s = 1; s < shape.length; s++) shp.lineTo(shape[s][0], shape[s][1]);
         shp.closePath();
-        mesh = new THREE.Mesh(new THREE.ShapeGeometry(shp, 24), null);
+        if (boardT > 0) {
+          mesh = new THREE.Mesh(new THREE.ExtrudeGeometry(shp, { depth: boardT, bevelEnabled: false }), null);
+          mesh.geometry.translate(0, 0, -boardT / 2);   // 纸板厚度，中性面居中
+        } else {
+          mesh = new THREE.Mesh(new THREE.ShapeGeometry(shp, 24), null);
+        }
       } else {
         var w = x1 - x0, h = y1n - y0n;
-        var geo = new THREE.PlaneGeometry(w, h);
-        geo.translate((x0 + x1) / 2 - ax, (y0n + y1n) / 2 - ay, 0);
-        mesh = new THREE.Mesh(geo, null);
+        if (boardT > 0) {
+          var boxG = new THREE.BoxGeometry(w, h, boardT);   // 体现纸板厚度
+          boxG.translate((x0 + x1) / 2 - ax, (y0n + y1n) / 2 - ay, 0);
+          mesh = new THREE.Mesh(boxG, null);
+        } else {
+          var planeG = new THREE.PlaneGeometry(w, h);
+          planeG.translate((x0 + x1) / 2 - ax, (y0n + y1n) / 2 - ay, 0);
+          mesh = new THREE.Mesh(planeG, null);
+        }
       }
       hinge.add(mesh);
 

@@ -4,15 +4,12 @@ const THREE = require('three');
 global.THREE = THREE;
 global.document = { createElement: () => ({ getContext: () => ({}) }) };
 global.window = {};
+const fs = require('fs');
 const { buildHierarchy } = require('../../static/diecut-3d.js');
 
-const geo = {
-  dimensions: { length: 200, width: 150, height: 60, thickness: 3 },
-  derived: { wall_height: 63, bottom_height: 150, lid_height: 150, tab_depth: 60, wing_width: 57, side_inner: 63, side_outer: 57 },
-  segments: [],
-};
-const meta = { blank: { back_flap_width_mm: 57, lock_width_mm: 57, fold_seg_mm: 17 }, parameters: { corner_radius_mm: 0 } };
-const { hinges } = buildHierarchy(geo, meta);
+// 几何数据复用 API geometry（_geo.json，diecut_engine 生成），坐标从 geometry.panels 动态读取
+const geo = JSON.parse(fs.readFileSync(__dirname + '/_geo.json', 'utf8'));
+const { hinges } = buildHierarchy(geo, {});
 
 function ease(x) { x = x < 0 ? 0 : x > 1 ? 1 : x; return x * x * (3 - 2 * x); }
 function applyProgress(p) {
@@ -39,7 +36,7 @@ const C = (ok, name, d) => { ok ? pass++ : fail++; console.log(`${ok ? 'PASS' : 
 // 阶段1 中期 p=0.09：前后壁约 50%，其余不动
 applyProgress(0.09);
 C(Math.abs(frac('front_wall') - 0.5) < 0.1 && Math.abs(frac('back_wall') - 0.5) < 0.1, 'p=0.09 前后壁折 ~50%', `f=${frac('front_wall').toFixed(2)}`);
-C(frac('lock_left') < 0.01 && frac('left_wall') < 0.01 && frac('lid') < 0.01 && frac('left_outer') < 0.01, 'p=0.09 腰部翼/侧壁/盖面/外段未动', `lock=${frac('lock_left').toFixed(3)} side=${frac('left_wall').toFixed(3)} lid=${frac('lid').toFixed(3)}`);
+C(frac('lock_left') < 0.01 && frac('left_wall') < 0.01 && frac('lid') < 0.01 && frac('left_insert') < 0.01, 'p=0.09 腰部翼/侧壁/盖面/外段未动', `lock=${frac('lock_left').toFixed(3)} side=${frac('left_wall').toFixed(3)} lid=${frac('lid').toFixed(3)}`);
 
 // 阶段2 中期 p=0.27：腰部两翼 ~50%，前后壁已全折，侧壁未动
 applyProgress(0.27);
@@ -50,11 +47,11 @@ C(frac('left_wall') < 0.01 && frac('lid') < 0.01, 'p=0.27 侧壁/盖面未动', 
 // 阶段3 中期 p=0.44：侧壁内段 ~50%，外段/盖面未动
 applyProgress(0.44);
 C(Math.abs(frac('left_wall') - 0.5) < 0.1 && Math.abs(frac('right_wall') - 0.5) < 0.1, 'p=0.44 侧壁内段折 ~50%', frac('left_wall').toFixed(2));
-C(frac('left_outer') < 0.01 && frac('lid') < 0.01, 'p=0.44 外段/盖面未动', `outer=${frac('left_outer').toFixed(3)}`);
+C(frac('left_insert') < 0.01 && frac('lid') < 0.01, 'p=0.44 外段/盖面未动', `outer=${frac('left_insert').toFixed(3)}`);
 
 // 阶段4 中期 p=0.60：外段折 ~50%（180° 的 50%），盖面未动
 applyProgress(0.60);
-C(Math.abs(frac('left_outer') - 0.5) < 0.1, 'p=0.60 外段折 ~50%', frac('left_outer').toFixed(2));
+C(Math.abs(frac('left_insert') - 0.5) < 0.1, 'p=0.60 外段折 ~50%', frac('left_insert').toFixed(2));
 C(frac('lid') < 0.01, 'p=0.60 盖面未动', frac('lid').toFixed(3));
 
 // 阶段5 中期 p=0.76：盖面折 ~50%，盖翼未动

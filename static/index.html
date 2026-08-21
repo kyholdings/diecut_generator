@@ -25,6 +25,7 @@
     #preview-box svg { max-width: 100%; height: auto; }
     #preview-3d { min-height: 520px; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden; cursor: grab; }
     #preview-3d:active { cursor: grabbing; }
+    #preview-3d:fullscreen { width: 100%; height: 100%; background: #f3f4f6; border-radius: 0; }
     .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
     .meta-item { background: #f8fafc; border-radius: 8px; padding: 8px 10px; font-size: .82rem; }
     .meta-item b { display: block; color: #0f172a; font-size: .95rem; }
@@ -166,6 +167,9 @@
               </button>
               <button type="button" class="btn btn-sm btn-outline-success" @click="playFold3D">
                 ▶ 自动播放
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-info" @click="toggleFullscreen3D" title="全屏查看 3D">
+                ⛶ 全屏
               </button>
               <div class="d-flex align-items-center gap-2 ms-1" style="min-width:220px; flex:1 1 220px;">
                 <input type="range" min="0" max="1" step="0.001" v-model.number="fold3DProgress"
@@ -368,6 +372,14 @@
           if (window.Diecut3D) {
             window.Diecut3D.play();
             this.folded3D = window.Diecut3D.getProgress() >= 0.5;
+          }
+        },
+        toggleFullscreen3D() {
+          const el = document.getElementById('preview-3d');
+          if (document.fullscreenElement) {
+            document.exitFullscreen();
+          } else if (el && el.requestFullscreen) {
+            el.requestFullscreen();
           }
         },
       },

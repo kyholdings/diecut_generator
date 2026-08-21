@@ -7,11 +7,7 @@ global.window = {};
 const fs = require('fs');
 const { buildHierarchy } = require('../../static/diecut-3d.js');
 
-const geo = {
-  dimensions: { length: 300, width: 200, height: 60, thickness: 1.5 },
-  derived: { wall_height: 60, bottom_height: 200, lid_height: 200, tab_depth: 60, wing_width: 58.5, side_inner: 60, side_outer: 58.5, column_width: 315, side_height: 202 },
-  segments: [],
-};
+const geo = JSON.parse(fs.readFileSync(__dirname + '/_geo.json', 'utf8'));
 const L = geo.dimensions.length, W = geo.dimensions.width, H = geo.dimensions.height, t = geo.dimensions.thickness;
 const der = geo.derived;
 const meta = { blank: { back_flap_width_mm: der.wing_width, lock_width_mm: der.wing_width }, parameters: {} };
