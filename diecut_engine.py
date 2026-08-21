@@ -349,15 +349,15 @@ def build_airplane_box(
             corner_radius,
             {1, 2},
         )
-        # 后壁矩形翼（右，矩形 = 前壁锁扣翼；上下各缩 t）
-        pts += [(colW + back_w, y3 - t), (colW + back_w, y2 + t), (colW, y2 + t)]
+        # 后壁矩形翼（右，矩形 = 前壁锁扣翼；上下各缩 t，严格镜像左翼）
+        pts += [(colW, y3 - t), (colW + back_w, y3 - t), (colW + back_w, y2 + t)]
         # 底面右侧壁（内段顶边到外段顶角，向下走到外段底角，末端凸起钩；外段垂直居中缩进）
         pts.append((ofs_b + Lx, y2_side))               # 内段顶角
         pts.append((ofs_b + Lx + side_inner, y2_side))  # 内段|外段分界线顶
         pts.append((ofs_b + Lx + side_inner, y_in_hi))  # 外段顶角（居中缩进）
         pts += side_hooks(ofs_b + Lx + side_total, y_in_hi, y_in_lo, up=False)
-        # 前壁锁扣翼（右；上下各缩 t）
-        pts += [(colW + lock_w, y1 - t), (colW + lock_w, y0 + t), (colW, y0 + t)]
+        # 前壁锁扣翼（右；上下各缩 t，严格镜像左翼：含前壁右缘上下缺口 + 前壁底边角）
+        pts += [(colW, y1), (colW, y1 - t), (colW + lock_w, y1 - t), (colW + lock_w, y0 + t), (colW, y0 + t), (colW, y0)]
         return pts
 
     # ---- 外轮廓（模切线）----
