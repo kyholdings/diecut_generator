@@ -4,8 +4,9 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # 依赖（含 gunicorn，容器内不用开发 server）
+# 云端在阿里云：用阿里云 PyPI 镜像 + 提高超时，规避默认 PyPI 在云端偶发超时/索引不全
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --default-timeout=100 -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 
 # 应用代码
 COPY . .
