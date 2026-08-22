@@ -1,0 +1,15 @@
+# 不要打进镜像的本地产物
+.git
+*.png
+*.log
+outputs/
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+test-*
+_check.py
+*_ref*.png
+R_*.png
+.compare*
+nb_analysis.txt
