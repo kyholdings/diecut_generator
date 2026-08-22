@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import io
 import math
+import os
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
@@ -817,6 +818,51 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
 # PDF 输出（ReportLab，无需 LibreOffice）
 # ---------------------------------------------------------------------------
 
+_CJK_FONT: str | None = None
+_CJK_FONT_READY = False
+
+
+def _ensure_cjk_font() -> str | None:
+    """按优先级探测平台已安装的中文字体，注册到 reportlab，并返回注册名（缓存）。
+
+    找不到（如 Linux 无 CJK 字库）时返回 None，调用方回退到 Helvetica。
+    注册的是 TrueType 字库，reportlab 只内嵌实际用到的字形子集，体积可控。
+    """
+    global _CJK_FONT, _CJK_FONT_READY
+    if _CJK_FONT_READY:
+        return _CJK_FONT
+    _CJK_FONT_READY = True
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        # Windows 常见 CJK 字库（.ttc 集合默认取 subfont 0）
+        candidates = [
+            (r"C:\Windows\Fonts\msyh.ttc", 0),
+            (r"C:\Windows\Fonts\msyhbd.ttc", 0),
+            (r"C:\Windows\Fonts\simhei.ttf", None),
+            (r"C:\Windows\Fonts\msjh.ttc", 0),
+            (r"C:\Windows\Fonts\msjh.ttf", None),
+            (r"C:\Windows\Fonts\Deng.ttf", None),
+            (r"C:\Windows\Fonts\simsun.ttc", 0),
+        ]
+        for i, (path, sub) in enumerate(candidates):
+            if not os.path.exists(path):
+                continue
+            name = f"CJKFont{i}"
+            try:
+                if sub is not None:
+                    pdfmetrics.registerFont(TTFont(name, path, subfontIndex=sub))
+                else:
+                    pdfmetrics.registerFont(TTFont(name, path))
+                _CJK_FONT = name
+                break
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return _CJK_FONT
+
+
 def geometry_to_pdf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
     from reportlab.lib.pagesizes import mm
     from reportlab.pdfgen import canvas
@@ -858,14 +904,67 @@ def geometry_to_pdf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
         c.drawPath(p, stroke=1, fill=0)
         c.restoreState()
 
+    def draw_dimension(seg: Segment) -> None:
+        """复刻 SVG 的 _dimension_marks：断口主线 + 端部箭头 + 中点数字(带 mm)。
+
+        SVG 版完整但 PDF 原先只画线、漏了数字与单位，这里补齐。
+        """
+        c.saveState()
+        c.setStrokeColorRGB(0.2, 0.25, 0.33)
+        c.setLineWidth(0.35)
+        c.setDash()
+        tick = 1.6   # 端部箭头长度（mm）
+        pad = 2.0    # 数字两侧留白（mm）
+        for (x0, y0), (x1, y1) in zip(seg.points, seg.points[1:]):
+            dx, dy = x1 - x0, y1 - y0
+            seg_len = math.hypot(dx, dy)
+            if seg_len < 1e-9:
+                continue
+            ux, uy = dx / seg_len, dy / seg_len
+            ang = math.atan2(dy, dx)
+            # 端部箭头（45° 斜向短线，指向线段端点）
+            for (px, py, dirn) in ((x0, y0, 1), (x1, y1, -1)):
+                base = ang if dirn > 0 else ang + math.pi
+                for off in (math.pi * 0.8, -math.pi * 0.8):
+                    ex = px + tick * math.cos(base + off)
+                    ey = py + tick * math.sin(base + off)
+                    c.line((px + tx) * mm, (py + ty) * mm, (ex + tx) * mm, (ey + ty) * mm)
+            # 断口：主线在数字处断开，两侧各留一段
+            label = f"{seg_len:g} mm"
+            est_half = len(label) * 4.75 / 2.0 + pad
+            half = min(est_half, max(0.5, seg_len / 2.0 - 1.0))
+            mid_d = seg_len / 2.0
+            a = mid_d - half
+            b = mid_d + half
+            if a > 0.001:
+                c.line((x0 + tx) * mm, (y0 + ty) * mm,
+                       (x0 + ux * a + tx) * mm, (y0 + uy * a + ty) * mm)
+            if b < seg_len - 0.001:
+                c.line((x0 + ux * b + tx) * mm, (y0 + uy * b + ty) * mm,
+                       (x1 + tx) * mm, (y1 + ty) * mm)
+            # 中点数字（垂直段转 90° 便于沿尺线读数）
+            mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            c.saveState()
+            c.translate((mx + tx) * mm, (my + ty) * mm)
+            if abs(dy) > abs(dx):
+                c.rotate(-90)
+            c.setFillColorRGB(0.2, 0.25, 0.33)
+            c.setFont("Helvetica-Bold", 8.5)
+            c.drawCentredString(0, 0, label)
+            c.restoreState()
+        c.restoreState()
+
     active = set(geo.layers)
     for seg in geo.segments:
         if LAYER_OF_KIND.get(seg.kind) not in active:
             continue
-        draw_segment(seg)
+        if seg.kind == "dimension":
+            draw_dimension(seg)
+        else:
+            draw_segment(seg)
 
     c.setFillColorRGB(0.3, 0.3, 0.3)
-    c.setFont("Helvetica", 8)
+    c.setFont(_ensure_cjk_font() or "Helvetica", 8)   # 标题含中文，优先用平台 CJK 字库
     c.drawString(10 * mm, page_h * mm - 10 * mm, title or "Airplane Box Die Cut (mm)")
     c.showPage()
     c.save()
@@ -904,6 +1003,52 @@ def geometry_to_dxf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
         "halfcut": "HALFCUT",
         "dimension": "DIMENSION",
     }
+
+    def add_dxf_dimension(msp, pts, layer="DIMENSION") -> None:
+        """复刻 SVG/PDF 的 _dimension_marks：断口主线 + 端部箭头 + 白底 MTEXT 标注(带 mm)。
+
+        DXF 原本只导出 DIMENSION 直线、漏了数字与单位，这里补齐为自包含标注。
+        """
+        tick = 1.6   # 端部箭头长度
+        pad = 2.0    # 数字两侧留白
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            dx, dy = x1 - x0, y1 - y0
+            seg_len = math.hypot(dx, dy)
+            if seg_len < 1e-9:
+                continue
+            ux, uy = dx / seg_len, dy / seg_len
+            ang = math.atan2(dy, dx)
+            # 端部箭头（45° 斜向短线）
+            for (px, py, dirn) in ((x0, y0, 1), (x1, y1, -1)):
+                base = ang if dirn > 0 else ang + math.pi
+                for off in (math.pi * 0.8, -math.pi * 0.8):
+                    ex = px + tick * math.cos(base + off)
+                    ey = py + tick * math.sin(base + off)
+                    msp.add_line((px, py), (ex, ey), dxfattribs={"layer": layer})
+            # 断口：主线在数字处断开
+            label = f"{seg_len:g} mm"
+            est_half = len(label) * 4.75 / 2.0 + pad
+            half = min(est_half, max(0.5, seg_len / 2.0 - 1.0))
+            mid_d = seg_len / 2.0
+            a, b = mid_d - half, mid_d + half
+            if a > 0.001:
+                msp.add_line((x0, y0), (x0 + ux * a, y0 + uy * a), dxfattribs={"layer": layer})
+            if b < seg_len - 0.001:
+                msp.add_line((x0 + ux * b, y0 + uy * b), (x1, y1), dxfattribs={"layer": layer})
+            # 中点 MTEXT（垂直段转 90°，白底遮断口）
+            mx, my = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+            m = msp.add_mtext(label, dxfattribs={
+                "layer": layer,
+                "insert": (mx, my),
+                "char_height": 2.5,
+                "rotation": 90 if abs(dy) > abs(dx) else 0,
+            })
+            m.dxf.attachment_point = 5   # 中中对齐
+            try:
+                m.set_bg_color((1, 1, 1))   # 白底遮住断口下方线条
+            except Exception:
+                pass
+
     active = set(geo.layers)
     for seg in geo.segments:
         if dxf_layer.get(seg.kind) not in active:
@@ -916,6 +1061,9 @@ def geometry_to_dxf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
             except Exception:
                 pass
         pts = seg.points
+        if seg.kind == "dimension":
+            add_dxf_dimension(msp, pts, layer)
+            continue
         for i in range(len(pts) - 1):
             x0, y0 = pts[i]
             x1, y1 = pts[i + 1]
