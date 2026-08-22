@@ -81,7 +81,7 @@
               <div class="mt-2">
                 <label class="form-label">插舌深度 (mm)</label>
                 <input type="number" class="form-control" v-model.number="form.tab_depth" min="8" step="1" />
-                <div class="form-text">留空 = 盒高 H；插舌为梯形 + 顶部圆弧化</div>
+                <div class="form-text">留空 = 盒高 H；插舌为直角三角形 + 顶角圆弧化</div>
               </div>
               <div class="mt-2">
                 <label class="form-label">两折翼插入段比例</label>
@@ -94,9 +94,9 @@
                 <div class="form-text">默认 1.0；自锁结构，无需胶水</div>
               </div>
               <div class="mt-2">
-                <label class="form-label">插舌顶圆角半径 (mm)</label>
+                <label class="form-label">盖翼圆角半径 (mm)</label>
                 <input type="number" class="form-control" v-model.number="form.corner_radius" min="0" max="20" step="0.5" />
-                <div class="form-text">默认 0 = 直角；>0 时插舌顶部圆角化（自动钳制）</div>
+                <div class="form-text">默认 0 = 直角；>0 时盖翼顶角圆角化（自动钳制）</div>
               </div>
               <div class="mt-2">
                 <label class="form-label">插舌耳翼顶圆角 (mm)</label>
@@ -214,7 +214,7 @@
               <div class="meta-item"><span>大侧壁内段</span><b>{{ result.meta.blank.side_inner_mm.toFixed(1) }} mm</b></div>
               <div class="meta-item"><span>大侧壁外段</span><b>{{ result.meta.blank.side_outer_mm.toFixed(1) }} mm</b></div>
               <div class="meta-item"><span>两折插入段</span><b>{{ result.meta.blank.fold_seg_mm.toFixed(1) }} mm</b></div>
-              <div class="meta-item"><span>插舌顶圆角</span><b>{{ result.meta.parameters.corner_radius_mm.toFixed(1) }} mm</b></div>
+              <div class="meta-item"><span>盖翼圆角</span><b>{{ result.meta.parameters.corner_radius_mm.toFixed(1) }} mm</b></div>
               <div class="meta-item"><span>凸起钩比例</span><b>{{ result.meta.parameters.hook_ratio.toFixed(2) }}</b></div>
               <div class="meta-item"><span>凸起钩高</span><b>{{ result.meta.parameters.hook_height_mm.toFixed(1) }} mm</b></div>
               <div class="meta-item"><span>纸厚补偿</span><b>{{ result.meta.parameters.board_compensation ? '开' : '关' }}</b></div>

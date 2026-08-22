@@ -57,7 +57,7 @@ class DieCutGeometry:
     fold_seg: float        # 两折翼的插入段长度
     segments: List[Segment] = field(default_factory=list)
     # —— 新增参数化字段（Step 2）——
-    corner_radius: float = 0.0        # 统一圆角半径（插舌顶 / 盖翼顶 / 侧壁拐角）
+    corner_radius: float = 0.0        # 盖翼圆角半径（只作用于盒盖两盖翼顶角）
     hook_ratio: float = 0.33          # 凸起钩高度比例（hook_h = W * hook_ratio）
     board_compensation: bool = True   # 是否启用纸厚补偿（内外尺寸换算）
     layers: List[str] = field(default_factory=lambda: ["CUT", "CREASE"])  # 活跃图层
@@ -106,7 +106,7 @@ def build_airplane_box(
       - 底面高度 = 制造宽 W + side_comp（盒底与后腰折线 → 盒底与前端折线）
       - 前壁 / 后壁 = 盒内高 H（厚度在盒外，从底面折起 90°，一折）
       - 盖子顶面高度 = 盒宽 W（平面盖面，盖住盒顶）
-      - 插舌高度 = 盒高 H，梯形 + 顶部圆弧化
+      - 插舌高度 = 盒高 H，直角三角形 + 顶角圆弧化
       - 底面大侧壁宽度 = 盒高 H（内段 / 外段 = H，末端凸起钩 = 纸厚 t）
       - 盖翼（机翼）/ 后壁矩形翼宽度 = H - t（两折）
 
@@ -117,7 +117,7 @@ def build_airplane_box(
       tab_depth               : 插舌深度（mm），默认 20
       fold_ratio              : 两折翼插入段占总宽比例，默认 0.3
       lock_ratio              : 锁扣翼宽度比例，默认 1.0
-      corner_radius           : 统一圆角半径（mm），默认 0（关闭，保持直角）
+      corner_radius           : 盖翼圆角半径（mm），默认 0（关闭，保持直角）
       hook_ratio              : 凸起钩高度比例，默认 0.33（= W/3.0 行为）
       board_compensation      : 纸厚补偿开关，默认 None（沿用 internal）
       layers                  : 活跃图层列表，默认 ["CUT", "CREASE"]
