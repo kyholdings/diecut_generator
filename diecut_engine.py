@@ -823,10 +823,13 @@ _CJK_FONT_READY = False
 
 
 def _ensure_cjk_font() -> str | None:
-    """按优先级探测平台已安装的中文字体，注册到 reportlab，并返回注册名（缓存）。
+    """按优先级探测可内嵌的中文字体，注册到 reportlab，并返回注册名（缓存）。
 
-    找不到（如 Linux 无 CJK 字库）时返回 None，调用方回退到 Helvetica。
-    注册的是 TrueType 字库，reportlab 只内嵌实际用到的字形子集，体积可控。
+    优先使用随项目打包的 fonts/ 目录（本地开发与云端容器都可用，最可控）；
+    Windows 平台再回退到系统已装的单 .ttf 字库作为兜底。
+    找不到（如 Linux 容器未带字体）时返回 None，调用方回退到 Helvetica。
+    注册的是 TrueType 字库（glyf 轮廓，reportlab 只内嵌实际用到的字形子集），
+    不支持 CFF 轮廓（.otf / 部分 .ttc，如 Fandol、Noto CJK 官方 .otf）。
     """
     global _CJK_FONT, _CJK_FONT_READY
     if _CJK_FONT_READY:
@@ -835,16 +838,51 @@ def _ensure_cjk_font() -> str | None:
     try:
         from reportlab.pdfbase import pdfmetrics
         from reportlab.pdfbase.ttfonts import TTFont
-        # Windows 常见 CJK 字库（.ttc 集合默认取 subfont 0）
-        candidates = [
-            (r"C:\Windows\Fonts\msyh.ttc", 0),
-            (r"C:\Windows\Fonts\msyhbd.ttc", 0),
-            (r"C:\Windows\Fonts\simhei.ttf", None),
-            (r"C:\Windows\Fonts\msjh.ttc", 0),
-            (r"C:\Windows\Fonts\msjh.ttf", None),
-            (r"C:\Windows\Fonts\Deng.ttf", None),
-            (r"C:\Windows\Fonts\simsun.ttc", 0),
-        ]
+
+        # 1) 随项目打包的 fonts/ 目录（云端 COPY . . 进 /app/fonts，本地即 ./fonts/）。
+        #    只收 TrueType（.ttf 单个 / .ttc 集合 subfontIndex=0），并优先挑真覆盖
+        #    中文的字体：用 fontTools 读真实 cmap 判覆盖，避免误取只含拉丁/阿拉伯
+        #    文的字体（如 NotoKufiArabic / NotoSans-Regular），否则中文仍会变方框。
+        app_fonts = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
+        candidate_files: list[str] = []
+        if os.path.isdir(app_fonts):
+            for fn in sorted(os.listdir(app_fonts)):
+                low = fn.lower()
+                if low.endswith(".ttf") or low.endswith(".ttc"):
+                    candidate_files.append(os.path.join(app_fonts, fn))
+
+        def _rank_chinese(path: str) -> tuple[int, int]:
+            # 覆盖中文越多越优先：>=5 个样例 = 0 档，部分覆盖 = 1 档，无中文 = 2 档。
+            # fontTools 不可用/读失败时放中位，避免误淘汰唯一字体。
+            try:
+                from fontTools.ttLib import TTFont as _FT
+                cmap = _FT(path, fontNumber=0).getBestCmap()
+                ok = sum(1 for c in "飞机盒刀版测试商邑" if ord(c) in cmap)
+                if ok >= 5:
+                    return (0, -ok)
+                if ok > 0:
+                    return (1, -ok)
+                return (2, 0)
+            except Exception:
+                return (1, 0)
+        candidate_files.sort(key=_rank_chinese)
+
+        candidates: list[tuple[str, int | None]] = []
+        for path in candidate_files:
+            if path.lower().endswith(".ttc"):
+                candidates.append((path, 0))
+            else:
+                candidates.append((path, None))
+
+        # 2) Windows 回退：系统已装单 .ttf 中文字库（不用 msyh 集合，规避子集方框）
+        if os.name == "nt":
+            candidates += [
+                (r"C:\Windows\Fonts\simhei.ttf", None),    # 黑体（单ttf，最稳）
+                (r"C:\Windows\Fonts\Deng.ttf", None),      # 等线（单ttf）
+                (r"C:\Windows\Fonts\msjh.ttf", None),      # 微软正黑（单ttf）
+                (r"C:\Windows\Fonts\simsun.ttc", 0),       # 宋体（集合，兜底）
+            ]
+
         for i, (path, sub) in enumerate(candidates):
             if not os.path.exists(path):
                 continue
