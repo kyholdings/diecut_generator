@@ -12,11 +12,13 @@ diecut 引擎 `diecut_engine.py` 会**优先扫描本目录**，注册到 report
 | 不要 | **`.otf`（CFF 轮廓）** —— reportlab 无法内嵌，Fandol / Noto CJK 官方 .otf 都是这种，会静默跳过 |
 
 ### 推荐字体（免费可商用）
+- `Noto Sans SC`（TrueType 静态版）→ `NotoSansSC-Regular.ttf` ← **当前打包的就是它**
 - `WenQuanYi Zen Hei` → 文件名 `wqy-zenhei.ttc`（Debian 包 `fonts-wqy-zenhei`）
-- `Noto Sans SC`（Google Fonts 下载的 **TrueType** 版，非 CJK .otf）→ `NotoSansSC-Regular.ttf`
 
 ### 已确认可用（云端实测）
+- ✅ `NotoSansSC-Regular.ttf`（用 fontTools 从 `NotoSansSC-VF.ttf` 以 wght=400 实例化成的**静态** TrueType）—— reportlab 4.x/5.x 都能可靠内嵌，MuPDF 正常载入、中文渲染为真实字形
 - ✅ `wqy-zenhei.ttc` 通过 reportlab `TTFont(..., subfontIndex=0)` 可内嵌
+- ❌ **变量字体（`NotoSansSC-VF.ttf` 等 VF）**—— reportlab 4.x 对 VF 的子集嵌入会损坏（MuPDF 报 zlib/FT 错误、中文空白）；务必先 `fontTools varLib.instancer` 实例化成静态再打包
 - ❌ Fandol Song / Fandol Fang（easytodo 曾装的）是 CFF，**不可用**
 - ❌ 微软雅黑 `msyh.ttc`（TrueType 集合）报告渲染易出方框，已弃用
 
