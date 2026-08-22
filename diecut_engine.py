@@ -444,17 +444,18 @@ def build_airplane_box(
         poly("halfcut", [(-tab_ear_w * 0.5, y4 + t), (-tab_ear_w * 0.5, y5 - t)])
         poly("halfcut", [(colW + tab_ear_w * 0.5, y4 + t), (colW + tab_ear_w * 0.5, y5 - t)])
 
-    # ---- 可选图层：关键尺寸标注线（DIMENSION）----
+    # ---- 可选图层：制造尺寸标注线（DIMENSION）----
+    # 长(盒底左右折线间)=制造长 Lx；宽(盒底上下折线间)=制造宽 W+side_comp；
+    # 高(后腰上下折线间)=后腰展开高 H。
+    # 线画在对应面板内/边缘，中央断口嵌生产尺寸数字(mm)+两端箭头，颜色蓝。
     if layers and "DIMENSION" in layers:
-        dim_margin = 8.0
-        xd = -(tab_ear_w + dim_margin)   # 左侧总长标注位置
-        xd_r = colW - xd                 # 右侧对称标注位置（关于列宽中轴镜像）
-        yd = y0 - dim_margin             # 底部长度标注位置
-        # 长度（底部水平，关于列宽中轴居中）
-        poly("dimension", [((colW - Lx) / 2.0, yd), ((colW + Lx) / 2.0, yd)])
-        # 展开总高（左右对称竖直标注）：前壁+底面+后壁+盖面+插舌
-        poly("dimension", [(xd, y0), (xd, y5)])
-        poly("dimension", [(xd_r, y0), (xd_r, y5)])
+        dim_margin = 6.0
+        # 长（制造长 Lx）：盒底左右两条折线之间，水平线横跨盒底下缘外侧
+        poly("dimension", [(ofs_b, y1 - dim_margin), (ofs_b + Lx, y1 - dim_margin)])
+        # 宽（制造宽 = W + side_comp）：盒底上下两条折线之间，竖直线贯穿盒底中央
+        poly("dimension", [(ofs_b + Lx / 2.0, y1), (ofs_b + Lx / 2.0, y2)])
+        # 高（后腰展开高 H）：后腰上下两条折线之间，竖直线贯穿后腰中央
+        poly("dimension", [(colW / 2.0, y2), (colW / 2.0, y3)])
 
     return DieCutGeometry(
         length=L,
@@ -684,20 +685,26 @@ LAYER_OF_KIND = {
 
 
 def _dimension_marks(points):
-    """为一条 dimension 折线生成端部箭头 path 与中点标注文字。
+    """为一条 dimension 折线生成制造尺寸标注：中央断口的两段主线 + 端部箭头 + 中点数字文本。
 
-    返回 (arrows: list[str], text: (x, y, label, rotate) | None)。
-    仅对每个线段标注尺寸值（mm），当前 dimension 段均为单线段。
+    返回 (seg_paths, arrow_paths, text|None)。
+    seg_paths  : 断口左右两段主线 <path>（class="dimension"，线在数字处断开）
+    arrow_paths: 两端 45° 斜箭头 <path>
+    text       : (x, y, label, rotate) 标注文本，label 含 "mm"，置于断口中央
     """
+    seg_paths = []
     arrows = []
     texts = []
     tick = 1.6  # 端部箭头长度（mm）
+    pad = 2.0   # 数字两侧留白（mm）
     for (x0, y0), (x1, y1) in zip(points, points[1:]):
         dx, dy = x1 - x0, y1 - y0
         seg_len = math.hypot(dx, dy)
         if seg_len < 1e-9:
             continue
+        ux, uy = dx / seg_len, dy / seg_len
         ang = math.atan2(dy, dx)
+        # 端部箭头（45° 斜向短线，指向线段端点，对称不受翻转影响）
         for (px, py, dirn) in ((x0, y0, 1), (x1, y1, -1)):
             base = ang if dirn > 0 else ang + math.pi
             for off in (math.pi * 0.8, -math.pi * 0.8):
@@ -707,11 +714,29 @@ def _dimension_marks(points):
                     f'<path class="dimension" d="M{_format_pt(px)} {_format_pt(py)} '
                     f'L{_format_pt(ex)} {_format_pt(ey)}"/>'
                 )
+        # 标注值 = 线段长度（mm），自动去尾零，如 "230 mm" / "135.5 mm"
+        label = f"{seg_len:g} mm"
+        # 断口半宽：按文本估算宽度，钳制到长度一半以内，保证不断开反向
+        est_half = len(label) * 4.75 / 2.0 + pad   # 字号 8.5mm → 每字符约 4.75mm 宽
+        half = min(est_half, max(0.5, seg_len / 2.0 - 1.0))
+        mid_d = seg_len / 2.0
+        a = mid_d - half
+        b = mid_d + half
+        if a > 0.001:
+            seg_paths.append(
+                f'<path class="dimension" d="M{_format_pt(x0)} {_format_pt(y0)} '
+                f'L{_format_pt(x0 + ux * a)} {_format_pt(y0 + uy * a)}"/>'
+            )
+        if b < seg_len - 0.001:
+            seg_paths.append(
+                f'<path class="dimension" d="M{_format_pt(x0 + ux * b)} {_format_pt(y0 + uy * b)} '
+                f'L{_format_pt(x1)} {_format_pt(y1)}"/>'
+            )
         texts.append(
-            ((x0 + x1) / 2.0, (y0 + y1) / 2.0, f"{seg_len:.1f}",
+            ((x0 + x1) / 2.0, (y0 + y1) / 2.0, label,
              -90 if abs(dy) > abs(dx) else 0)
         )
-    return arrows, texts[0] if texts else None
+    return seg_paths, arrows, texts[0] if texts else None
 
 
 def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
@@ -737,7 +762,7 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
         f'    .cut {{ stroke: #000; stroke-width: {_format_pt(cut_w)}; fill: none; }}',
         f'    .crease {{ stroke: #e02020; stroke-width: {_format_pt(crease_w)}; stroke-dasharray: 4 2; fill: none; }}',
         f'    .halfcut {{ stroke: #1d4ed8; stroke-width: {_format_pt(halfcut_w)}; stroke-dasharray: 1 1.5; fill: none; }}',
-        f'    .dimension {{ stroke: #334155; stroke-width: {_format_pt(dim_w)}; fill: none; }}',
+        f'    .dimension {{ stroke: #0d6efd; stroke-width: {_format_pt(dim_w)}; fill: none; }}',
         '  </style>',
         '</defs>',
     ]
@@ -759,16 +784,18 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
         for seg in geo.segments:
             if LAYER_OF_KIND.get(seg.kind) != layer:
                 continue
-            d_parts = []
-            for i, (x, y) in enumerate(seg.points):
-                cmd = "M" if i == 0 else "L"
-                d_parts.append(f"{cmd}{_format_pt(x)} {_format_pt(y)}")
-            parts.append(f'    <path class="{seg.kind}" d="{" ".join(d_parts)}"/>')
             if seg.kind == "dimension":
-                arrows, lbl = _dimension_marks(seg.points)
+                gap_paths, arrows, lbl = _dimension_marks(seg.points)
+                parts.extend(gap_paths)
                 parts.extend(arrows)
                 if lbl:
                     dim_texts.append(lbl)
+            else:
+                d_parts = []
+                for i, (x, y) in enumerate(seg.points):
+                    cmd = "M" if i == 0 else "L"
+                    d_parts.append(f"{cmd}{_format_pt(x)} {_format_pt(y)}")
+                parts.append(f'    <path class="{seg.kind}" d="{" ".join(d_parts)}"/>')
         parts.append("  </g>")
     parts.append("</g>")
     # 尺寸标注文字：组内坐标被 scale(1,-1) 倒置，故在翻转组外按翻转还原后输出，
@@ -777,8 +804,9 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
         ty2 = flip_t - ty
         rot_attr = f' transform="rotate({rot} {_format_pt(tx)} {_format_pt(ty2)})"' if rot else ""
         parts.append(
-            f'<text x="{_format_pt(tx)}" y="{_format_pt(ty2)}" font-size="3.4" '
-            f'fill="#334155" font-family="sans-serif" text-anchor="middle"'
+            f'<text x="{_format_pt(tx)}" y="{_format_pt(ty2)}" font-size="8.5" '
+            f'fill="#0d6efd" stroke="#ffffff" stroke-width="1.2" paint-order="stroke" '
+            f'font-family="sans-serif" text-anchor="middle"'
             f'{rot_attr}>{label}</text>'
         )
     parts.append("</svg>")
