@@ -683,6 +683,37 @@ LAYER_OF_KIND = {
 }
 
 
+def _dimension_marks(points):
+    """为一条 dimension 折线生成端部箭头 path 与中点标注文字。
+
+    返回 (arrows: list[str], text: (x, y, label, rotate) | None)。
+    仅对每个线段标注尺寸值（mm），当前 dimension 段均为单线段。
+    """
+    arrows = []
+    texts = []
+    tick = 1.6  # 端部箭头长度（mm）
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        dx, dy = x1 - x0, y1 - y0
+        seg_len = math.hypot(dx, dy)
+        if seg_len < 1e-9:
+            continue
+        ang = math.atan2(dy, dx)
+        for (px, py, dirn) in ((x0, y0, 1), (x1, y1, -1)):
+            base = ang if dirn > 0 else ang + math.pi
+            for off in (math.pi * 0.8, -math.pi * 0.8):
+                ex = px + tick * math.cos(base + off)
+                ey = py + tick * math.sin(base + off)
+                arrows.append(
+                    f'<path class="dimension" d="M{_format_pt(px)} {_format_pt(py)} '
+                    f'L{_format_pt(ex)} {_format_pt(ey)}"/>'
+                )
+        texts.append(
+            ((x0 + x1) / 2.0, (y0 + y1) / 2.0, f"{seg_len:.1f}",
+             -90 if abs(dy) > abs(dx) else 0)
+        )
+    return arrows, texts[0] if texts else None
+
+
 def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
     min_x, min_y, max_x, max_y = geo.bounds
     pad = 10.0
@@ -696,7 +727,7 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
     cut_w = 0.25 + t * 0.02
     crease_w = 0.20 + t * 0.02
     halfcut_w = 0.15 + t * 0.02
-    dim_w = 0.1
+    dim_w = 0.35
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{_format_pt(vb_w)}mm" '
@@ -706,7 +737,7 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
         f'    .cut {{ stroke: #000; stroke-width: {_format_pt(cut_w)}; fill: none; }}',
         f'    .crease {{ stroke: #e02020; stroke-width: {_format_pt(crease_w)}; stroke-dasharray: 4 2; fill: none; }}',
         f'    .halfcut {{ stroke: #1d4ed8; stroke-width: {_format_pt(halfcut_w)}; stroke-dasharray: 1 1.5; fill: none; }}',
-        f'    .dimension {{ stroke: #64748b; stroke-width: {_format_pt(dim_w)}; fill: none; }}',
+        f'    .dimension {{ stroke: #334155; stroke-width: {_format_pt(dim_w)}; fill: none; }}',
         '  </style>',
         '</defs>',
     ]
@@ -719,6 +750,7 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
     flip_t = 2 * vb_y + vb_h
     parts.append(f'<g transform="translate(0,{_format_pt(flip_t)}) scale(1,-1)">')
     active = set(geo.layers)
+    dim_texts = []
     # 按图层分组渲染（Step 5）：CUT / CREASE / 可选 HALFCUT / DIMENSION
     for layer in ("CUT", "CREASE", "HALFCUT", "DIMENSION"):
         if layer not in active:
@@ -732,8 +764,23 @@ def geometry_to_svg(geo: DieCutGeometry, title: str = "") -> str:
                 cmd = "M" if i == 0 else "L"
                 d_parts.append(f"{cmd}{_format_pt(x)} {_format_pt(y)}")
             parts.append(f'    <path class="{seg.kind}" d="{" ".join(d_parts)}"/>')
+            if seg.kind == "dimension":
+                arrows, lbl = _dimension_marks(seg.points)
+                parts.extend(arrows)
+                if lbl:
+                    dim_texts.append(lbl)
         parts.append("  </g>")
     parts.append("</g>")
+    # 尺寸标注文字：组内坐标被 scale(1,-1) 倒置，故在翻转组外按翻转还原后输出，
+    # 文字本身保持正向可读。
+    for (tx, ty, label, rot) in dim_texts:
+        ty2 = flip_t - ty
+        rot_attr = f' transform="rotate({rot} {_format_pt(tx)} {_format_pt(ty2)})"' if rot else ""
+        parts.append(
+            f'<text x="{_format_pt(tx)}" y="{_format_pt(ty2)}" font-size="3.4" '
+            f'fill="#334155" font-family="sans-serif" text-anchor="middle"'
+            f'{rot_attr}>{label}</text>'
+        )
     parts.append("</svg>")
     return "\n".join(parts)
 
@@ -768,8 +815,8 @@ def geometry_to_pdf_bytes(geo: DieCutGeometry, title: str = "") -> bytes:
             c.setLineWidth(0.2 + 0.0)
             c.setDash(1, 1.5)
         elif seg.kind == "dimension":
-            c.setStrokeColorRGB(0.4, 0.4, 0.4)
-            c.setLineWidth(0.1)
+            c.setStrokeColorRGB(0.2, 0.25, 0.33)
+            c.setLineWidth(0.35)
             c.setDash()
         else:
             c.setStrokeColorRGB(0.9, 0.1, 0.1)

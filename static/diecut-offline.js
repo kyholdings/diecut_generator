@@ -143,22 +143,56 @@
     const x0 = slotCenterX - halfSlot;
     const x1 = slotCenterX + halfSlot;
     [[x0, x1], [L - x1, L - x0]].forEach((range) => add('cut', [[range[0], slotLow], [range[1], slotLow], [range[1], slotHigh], [range[0], slotHigh], [range[0], slotLow]]));
+    // 可选图层：关键尺寸标注线（DIMENSION），与在线引擎保持一致
+    const dimM = 8, dimXd = -(earWidth + dimM), dimXdr = L - dimXd, dimYd = y0 - dimM;
+    add('dimension', [[0, dimYd], [L, dimYd]]);
+    add('dimension', [[dimXd, y0], [dimXd, y5]]);
+    add('dimension', [[dimXdr, y0], [dimXdr, y5]]);
     const layers = Array.isArray(form.layers) ? form.layers : ['CUT', 'CREASE'];
     const bounds = segments.reduce((box, segment) => segment.points.reduce((current, point) => [Math.min(current[0], point[0]), Math.min(current[1], point[1]), Math.max(current[2], point[0]), Math.max(current[3], point[1])], box), [Infinity, Infinity, -Infinity, -Infinity]);
     const pad = 10;
     const viewBox = [bounds[0] - pad, bounds[1] - pad, bounds[2] - bounds[0] + pad * 2, bounds[3] - bounds[1] + pad * 2];
     const cutWidth = 0.25 + t * 0.02;
     const creaseWidth = 0.20 + t * 0.02;
-    const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${format(viewBox[2])}mm" height="${format(viewBox[3])}mm" viewBox="${viewBox.map(format).join(' ')}">`, '<defs><style>', `.cut{stroke:#000;stroke-width:${format(cutWidth)};fill:none}`, `.crease{stroke:#e02020;stroke-width:${format(creaseWidth)};stroke-dasharray:4 2;fill:none}`, '</style></defs>'];
+    const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="${format(viewBox[2])}mm" height="${format(viewBox[3])}mm" viewBox="${viewBox.map(format).join(' ')}">`, '<defs><style>', `.cut{stroke:#000;stroke-width:${format(cutWidth)};fill:none}`, `.crease{stroke:#e02020;stroke-width:${format(creaseWidth)};stroke-dasharray:4 2;fill:none}`, `.dimension{stroke:#334155;stroke-width:0.35;fill:none}`, '</style></defs>'];
     const flip = 2 * viewBox[1] + viewBox[3];
     parts.push(`<g transform="translate(0,${format(flip)}) scale(1,-1)">`);
-    [['CUT', 'cut'], ['CREASE', 'crease']].forEach(([layer, kind]) => {
+    const dimTick = 1.6;
+    let dimTexts = [];
+    [['CUT', 'cut'], ['CREASE', 'crease'], ['DIMENSION', 'dimension']].forEach(([layer, kind]) => {
       if (!layers.includes(layer)) return;
       parts.push(`<g id="layer-${layer}">`);
-      segments.filter((segment) => segment.kind === kind).forEach((segment) => parts.push(`<path class="${kind}" d="${pathData(segment.points)}"/>`));
+      segments.filter((segment) => segment.kind === kind).forEach((segment) => {
+        parts.push(`<path class="${kind}" d="${pathData(segment.points)}"/>`);
+        if (kind === 'dimension') {
+          const p = segment.points;
+          for (let k = 0; k < p.length - 1; k++) {
+            const [x0, y0] = p[k], [x1, y1] = p[k + 1];
+            const dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy);
+            if (len < 1e-9) continue;
+            const ang = Math.atan2(dy, dx);
+            for (const [px, py, ph] of [[x0, y0, 1], [x1, y1, -1]]) {
+              const base = ph > 0 ? ang : ang + Math.PI;
+              for (const off of [Math.PI * 0.8, -Math.PI * 0.8]) {
+                const ex = px + dimTick * Math.cos(base + off), ey = py + dimTick * Math.sin(base + off);
+                parts.push(`<path class="dimension" d="M${format(px)} ${format(py)} L${format(ex)} ${format(ey)}"/>`);
+              }
+            }
+            const mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+            dimTexts.push([mx, my, len.toFixed(1), Math.abs(dy) > Math.abs(dx) ? -90 : 0]);
+          }
+        }
+      });
       parts.push('</g>');
     });
-    parts.push('</g></svg>');
+    parts.push('</g>');
+    const flipDim = 2 * viewBox[1] + viewBox[3];
+    for (const [mx, my, label, rot] of dimTexts) {
+      const ty = flipDim - my;
+      const rotAttr = rot ? ` transform="rotate(${rot} ${format(mx)} ${format(ty)})"` : '';
+      parts.push(`<text x="${format(mx)}" y="${format(ty)}" font-size="3.4" fill="#334155" font-family="sans-serif" text-anchor="middle"${rotAttr}>${label}</text>`);
+    }
+    parts.push('</svg>');
     return { svg: parts.join('\n'), geometry: { schema_version: 'offline-1.0', type: 'airplane_box', units: 'mm', bounds, segments, layers } };
   }
 
